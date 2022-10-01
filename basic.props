@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ImportGroup Label="PropertySheets" />
+  <PropertyGroup Label="UserMacros">
+    <THIRD_PATH>$(SolutionDir)third</THIRD_PATH>
+    <THIRD_OUTPUT_PATH>$(THIRD_PATH)\output</THIRD_OUTPUT_PATH>
+  </PropertyGroup>
+  <PropertyGroup />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(THIRD_OUTPUT_PATH)\$(Configuration)_$(PlatformTarget)\include;$(THIRD_OUTPUT_PATH)\$(Configuration)_$(PlatformTarget)\include\base\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(THIRD_OUTPUT_PATH)\$(Configuration)_$(PlatformTarget)\lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libbase_static.lib;Shlwapi.lib;Version.lib;DbgHelp.lib;Winmm.lib;delayimp.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <BuildMacro Include="THIRD_PATH">
+      <Value>$(THIRD_PATH)</Value>
+    </BuildMacro>
+    <BuildMacro Include="THIRD_OUTPUT_PATH">
+      <Value>$(THIRD_OUTPUT_PATH)</Value>
+    </BuildMacro>
+  </ItemGroup>
+</Project>

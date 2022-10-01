@@ -2,6 +2,8 @@
 #include "net_core_imp.h"
 #include <iostream>
 
+#include <base/log/logger.h>
+
 namespace netcore {
 NetService::NetService() :
     _is_started(false)
@@ -20,15 +22,23 @@ bool NetService::init()
         if (_is_started) {
             return false;
         }
+
+        if (!baselog::initialize(baselog::log_sink::windebug_sink)) {
+            return false;
+        }
+
 		_thread = std::move(std::thread(&NetService::thread_proc, this));
 		_is_started = true;
     }
+
+    baselog::info("net service started now...");
     return true;
 }
 
 bool NetService::close()
 {
-    std::cout << "[ns] close" << std::endl;
+    baselog::info("netcore service is closing...");
+    auto ret = baselog::uninitialize();
     {
 		std::unique_lock<std::mutex> ul(_main_mutex);
         if (!_is_started) {
@@ -41,15 +51,16 @@ bool NetService::close()
 		_is_started = false;
     }
 
-    return false;
+    return true;
 }
 
 void NetService::thread_proc()
 {
     while (1) {
         ::Sleep(5000);
-        std::cout << "[ns] thread processing..." << std::endl;
+        BASELOG_TRACE("netcore thread processing...");
         this->_channel->on_callback();
+        break;
     }
 }
 

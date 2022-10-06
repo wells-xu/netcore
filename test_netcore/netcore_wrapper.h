@@ -9,7 +9,9 @@
 //}
 
 namespace dllfunc {
-    typedef netcore::INetService* (__cdecl LPFUNC_NETCORE_STARTUP) \
+    typedef bool (__cdecl LPFUNC_NETCORE_STARTUP) \
+        ();
+    typedef netcore::INetService* (__cdecl LPFUNC_NETCORE_SERVICE_INSTANCE) \
         ();
     typedef bool(__cdecl LPFUNC_NETCORE_SHUTDOWN) \
         (netcore::INetService*);
@@ -27,14 +29,18 @@ public:
     NetcoreWrapper();
     ~NetcoreWrapper();
 
-    bool start(netcore::INetService** ins);
-    bool stop(netcore::INetService* ins);
+    static NetcoreWrapper& Instance();
+
+    bool Initialize();
+    netcore::INetService* NetServiceInstance();
+    bool UnInitialize();
 
 private:
     std::function<dllfunc::LPFUNC_NETCORE_STARTUP> _func_start;
+    std::function<dllfunc::LPFUNC_NETCORE_SERVICE_INSTANCE> _func_instance;
     std::function<dllfunc::LPFUNC_NETCORE_SHUTDOWN> _func_stop; 
     
-    netcore::INetService* _net_service;
+    netcore::INetService* _net_service = nullptr;
     std::unique_ptr<base::sys::DllClient> _dll_client;
 };
 

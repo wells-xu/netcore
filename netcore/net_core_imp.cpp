@@ -16,23 +16,27 @@ NetService::~NetService()
 
 bool NetService::init()
 {
-    std::cout << "[ns] init" << std::endl;
     {
 		std::unique_lock<std::mutex> ul(_main_mutex);
         if (_is_started) {
-            return false;
+            return true;
         }
-
-        if (!baselog::initialize(baselog::log_sink::windebug_sink)) {
-            return false;
-        }
-
-		_thread = std::move(std::thread(&NetService::thread_proc, this));
 		_is_started = true;
     }
 
-    baselog::info("net service started now...");
-    return true;
+    bool is_succ = false;
+    if (baselog::initialize(baselog::log_sink::windebug_sink)) {
+        _thread = std::move(std::thread(&NetService::thread_proc, this));
+        baselog::info("net service started now...");
+        is_succ = true;
+    }
+
+    {
+		std::unique_lock<std::mutex> ul(_main_mutex);
+		_is_started = is_succ;
+    }
+
+    return is_succ;
 }
 
 bool NetService::close()
@@ -51,7 +55,7 @@ bool NetService::close()
 		_is_started = false;
     }
 
-    return true;
+    return ret;
 }
 
 void NetService::thread_proc()

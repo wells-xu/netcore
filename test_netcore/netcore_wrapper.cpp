@@ -3,6 +3,8 @@
 
 #include "dll_client.h"
 
+#include <base/comm/no_destructor.h>
+
 NetcoreWrapper::NetcoreWrapper() :
     _net_service(nullptr),
     _dll_client(new base::sys::DllClient())
@@ -12,15 +14,17 @@ NetcoreWrapper::NetcoreWrapper() :
 
 NetcoreWrapper::~NetcoreWrapper()
 {
-    stop(_net_service);
+    //UnInitialize();
 }
 
-bool NetcoreWrapper::start(netcore::INetService** ins)
+NetcoreWrapper& NetcoreWrapper::Instance()
 {
-    if (ins == nullptr) {
-        return false;
-    }
+    static base::NoDestructor<NetcoreWrapper> instance;
+    return *instance;
+}
 
+bool NetcoreWrapper::Initialize()
+{
     if (_net_service != nullptr) {
         return false;
     }
@@ -32,33 +36,50 @@ bool NetcoreWrapper::start(netcore::INetService** ins)
 		return false;
     }
 
-    _func_start = _dll_client->get_dll_func<dllfunc::LPFUNC_NETCORE_STARTUP>("net_service_startup");
+    _func_start = _dll_client->get_dll_func<
+        dllfunc::LPFUNC_NETCORE_STARTUP>("net_service_startup");
     if (!_func_start) {
         return false;
     }
- 
-    _func_stop = _dll_client->get_dll_func<dllfunc::LPFUNC_NETCORE_SHUTDOWN>("net_service_shutdown");
-    if (!_func_stop) {
+
+    _func_instance = _dll_client->get_dll_func<
+        dllfunc::LPFUNC_NETCORE_SERVICE_INSTANCE>("net_service_instance");
+    if (!_func_instance) {
         return false;
     }
  
-    _net_service = _func_start();
-    *ins = _net_service;
-    return (*ins != nullptr);
+    _func_stop = _dll_client->get_dll_func<
+        dllfunc::LPFUNC_NETCORE_SHUTDOWN>("net_service_shutdown");
+    if (!_func_stop) {
+        return false;
+    }
+
+    if (!_func_start()) {
+        return false;
+    }
+
+    _net_service = _func_instance();
+    if (_net_service == nullptr) {
+        return false;
+    }
+
+    return true;
 }
 
-bool NetcoreWrapper::stop(netcore::INetService* ins)
+netcore::INetService* NetcoreWrapper::NetServiceInstance()
+{
+    return _net_service;
+}
+
+bool NetcoreWrapper::UnInitialize()
 {
     if (_net_service == nullptr) {
         return false;
     }
-    if (ins == _net_service) {
-        _net_service = nullptr;
-        if (!_func_stop) {
-            return false;
-        }
-        return _func_stop(ins);
+
+    if (!_func_stop) {
+        return false;
     }
 
-    return false;
+    return _func_stop(_net_service);
 }

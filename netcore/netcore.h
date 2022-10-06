@@ -17,7 +17,8 @@ namespace netcore {
 class INetService;
 class INetChannel;
 
-DLL_NETCORE_API INetService* net_service_startup();
+DLL_NETCORE_API bool         net_service_startup();
+DLL_NETCORE_API INetService* net_service_instance();
 DLL_NETCORE_API bool         net_service_shutdown(INetService*);
 
 class INetService {

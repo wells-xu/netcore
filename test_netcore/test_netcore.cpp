@@ -5,12 +5,31 @@
 #include "netcore_wrapper.h"
 
 #include <iostream>
+#include <chrono>
 
 #include <base/log/logger.h>
 
 void on_call(int type, void *data, void *data2, void *data3)
 {
     baselog::info("[main] on_called...");
+}
+
+void thread_request()
+{
+    while (1) {
+        auto chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+        if (chan == nullptr) {
+            baselog::error("create channel failed");
+            return;
+        }
+
+        auto ret = chan->post_request("https://macx.net", std::bind(
+            on_call, std::placeholders::_1, std::placeholders::_2,
+            std::placeholders::_3, std::placeholders::_4));
+        baselog::info("new request had posted: {}", ret);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -24,19 +43,10 @@ int _tmain(int argc, _TCHAR* argv[])
         baselog::error("load netcore failed");
         return 1;
     }
-
     baselog::debug("load netcore successed");
 
-    auto chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
-    if (chan == nullptr) {
-        baselog::error("create channel failed");
-        return 1;
-    }
+    std::thread work_thread(thread_request);
 
-    auto ret = chan->post_request( "www.baidu.com", std::bind(
-        on_call, std::placeholders::_1, std::placeholders::_2,
-        std::placeholders::_3, std::placeholders::_4));
-    baselog::info("new request had posted");
     char x = 0;
     std::cin >> x;
     baselog::info("netcore tester exited safe");

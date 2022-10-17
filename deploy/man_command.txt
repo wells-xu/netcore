@@ -1,0 +1,2 @@
+c-ares: nmake -f Makefile.msvc
+libcurl:nmake /f Makefile.vc mode=static WITH_CARES=static ENABLE_SCHANNEL=yes DEBUG=yes MACHINE= WITH_DEVEL=c:\Users\wells\source\repos\github.com\wells-xu\netcore\third\appbuilding\win\libcurl\c-ares\msvc\cares

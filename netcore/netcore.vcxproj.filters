@@ -30,6 +30,12 @@
     <ClInclude Include="netcore.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="net_channel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="net_service.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -42,6 +48,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="net_core_imp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="net_channel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="net_service.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

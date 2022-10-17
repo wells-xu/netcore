@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="netcore">
+      <UniqueIdentifier>{f5a78faf-fe15-4e5f-a336-8d4d4c6a0971}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
@@ -24,10 +27,28 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\netcore\net_core_imp.h">
+      <Filter>netcore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\netcore\net_channel.h">
+      <Filter>netcore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\netcore\net_service.h">
+      <Filter>netcore</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\netcore\net_core_imp.cpp">
+      <Filter>netcore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\netcore\net_channel.cpp">
+      <Filter>netcore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\netcore\net_service.cpp">
+      <Filter>netcore</Filter>
     </ClCompile>
     <ClCompile Include="test_curl.cpp">
       <Filter>Source Files</Filter>

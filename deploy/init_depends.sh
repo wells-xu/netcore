@@ -51,6 +51,7 @@ deploy_winoah() {
         do_or_die git clone https://github.com/wells-xu/winoah.git
     else
         log_msg "winoah already exist..."
+        #do_or_die git pull
     fi
 
     log_msg "entering winoah: $dir_third_path/winoah"
@@ -93,7 +94,7 @@ main() {
     do_or_die mkdir -p $dir_third_output_path/lib
     
 	#deploy libcurl first
-    #deploy_libcurl $config_flag $machine_flag
+    deploy_libcurl $config_flag $machine_flag
 
     #deploy winoah
     deploy_winoah $config_flag $machine_flag

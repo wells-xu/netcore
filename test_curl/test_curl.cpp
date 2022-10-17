@@ -2,10 +2,22 @@
 //
 
 #include "stdafx.h"
+
+#include <chrono>
 #include <thread>
 #include <iostream>
 #include <fstream>
+
 #include <curl\curl.h>
+
+#include <base/comm/distrib_pool.h>
+#include <base/comm/no_destructor.h>
+#include <base/log/logger.h>
+
+#include <base/strings/string_util.h>
+#include <base/strings/utf_string_conversions.h>
+#include <base/strings/sys_string_conversions.h>
+#include <base/win/scoped_handle.h>
 
 namespace sync_stuff {
 
@@ -58,6 +70,8 @@ int run()
 
 namespace async_stuff {
 
+CURLM* g_curl_man;
+
 struct WriteDataMemory {
     std::string buf;
 };
@@ -69,9 +83,21 @@ size_t on_write_callback(void *buffer, size_t size, size_t nmemb, void *userp)
         return 0;
     }
     auto tid = std::this_thread::get_id();
-    std::cout << "on_write_callback: " << tid << std::endl;
+    //std::cout << "on_write_callback: " << tid << std::endl;
 
     ptr->buf.append(reinterpret_cast<char*>(buffer), size * nmemb);
+    
+    //auto str1 = base::CollapseWhitespaceASCII(ptr->buf, true);
+    ////std::string str2;
+    ////str2.resize(str3.size() * 3);
+    ////std::wstring wbuf;
+    ////gbk_to_unicode(str3.c_str(), wbuf);
+    ////::OutputDebugStringW(wbuf.c_str());
+    //auto utf8_str = base::GBKToUTF8(str1);
+    //::OutputDebugStringA(utf8_str.c_str());
+
+    baselog::debug("[on_write_cb] net data receieved size= {}", ptr->buf.size());
+    //baselog::debug("[on_write_cb] net data receieved content= {}", utf8_str);
     return (size * nmemb);
 }
 
@@ -87,11 +113,11 @@ int run()
     WriteDataMemory wdm;
     curl = curl_easy_init();
     if (curl != nullptr) {
-        //curl_easy_setopt(curl, CURLOPT_URL, "https://www.baidu.com");
-        curl_easy_setopt(curl, CURLOPT_URL, "https://www.hao123.com");
+        curl_easy_setopt(curl, CURLOPT_URL, "https://www.baidu.com");
+        //curl_easy_setopt(curl, CURLOPT_URL, "https://www.hao123.com");
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_write_callback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, reinterpret_cast<void*>(&wdm));
-        //curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     }
 
     curl_man = curl_multi_init();
@@ -120,8 +146,171 @@ int run()
     return 0;
 }
 
-void thread_proc()
+class ScopedCURLHandle {
+public:
+    ScopedCURLHandle() :
+        _curl(curl_easy_init()) {
+    }
+    ScopedCURLHandle(ScopedCURLHandle&) = delete;
+    ScopedCURLHandle(const ScopedCURLHandle&) = delete;
+    ScopedCURLHandle(ScopedCURLHandle&& other) = delete;
+    ScopedCURLHandle& operator=(const ScopedCURLHandle&) = delete;
+
+
+    ~ScopedCURLHandle() {
+        if (_curl != nullptr) {
+            curl_easy_cleanup(_curl);
+        }
+    }
+
+    CURL* Get() {
+        return _curl;
+    }
+private:
+    CURL* _curl = nullptr;
+};
+
+base::DistribPoolThreadSafe<WriteDataMemory>& PrivateBufThreadSafe() {
+    static base::NoDestructor<base::DistribPoolThreadSafe<WriteDataMemory>> instance;
+    return *instance;
+}
+
+CURL* create_channel(base::DistribPoolThreadSafe<ScopedCURLHandle> &pool) {
+    auto sh = pool.borrow();
+    CURL* chan = nullptr;
+    if (sh != nullptr) {
+        chan = sh->Get();
+        auto pri_ptr = PrivateBufThreadSafe().borrow();
+        curl_easy_setopt(chan, CURLOPT_URL, "https://macx.net");
+        //curl_easy_setopt(chan, CURLOPT_URL, "https://www.baidu.com");
+        curl_easy_setopt(chan, CURLOPT_WRITEFUNCTION, on_write_callback);
+        curl_easy_setopt(chan, CURLOPT_WRITEDATA, reinterpret_cast<void*>(pri_ptr));
+        curl_easy_setopt(chan, CURLOPT_PRIVATE, pri_ptr);
+        //curl_easy_setopt(chan, CURLOPT_WRITEDATA, pri_ptr);
+        curl_easy_setopt(chan, CURLOPT_XFERINFODATA, pri_ptr);
+        //curl_easy_setopt(chan, CURLOPT_FOLLOWLOCATION, 1L);
+    }
+
+    return chan;
+}
+
+void channel_thread_proc() {
+    base::DistribPoolThreadSafe<ScopedCURLHandle> pool;
+    if (!pool.init()) {
+        baselog::error("curl handle pool failed");
+        return;
+    }
+
+    do {
+        auto chan = create_channel(pool);
+        if (nullptr == chan) {
+            baselog::error("create channel failed");
+            break;
+        }
+        /* add the individual easy handle */
+        auto ret = curl_multi_add_handle(g_curl_man, chan);
+        std::this_thread::sleep_for(std::chrono::seconds(30));
+        if (ret == CURLE_OK) {
+            //ret = curl_multi_add_handle(g_curl_man, chan);
+            curl_multi_wakeup(g_curl_man);
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    } while (1);
+}
+
+void service_thread_proc() {
+    int still_running = 0;
+
+    do {
+        CURLMcode mc;
+        int numfds;
+
+        mc = curl_multi_perform(g_curl_man, &still_running);
+
+        if (mc == CURLM_OK) {
+            /* wait for activity or timeout */
+            mc = curl_multi_poll(g_curl_man, NULL, 0, 10000, &numfds);
+        }
+
+        if (mc != CURLM_OK) {
+            baselog::error("curl_multi failed, code {}", mc);
+            break;
+        }
+
+        do {
+            int msgq = 0;
+            auto m = curl_multi_info_read(g_curl_man, &msgq);
+            if (m == nullptr) {
+                break;
+            }
+
+            auto chan = m->easy_handle;
+            curl_multi_remove_handle(g_curl_man, m->easy_handle);
+
+            WriteDataMemory* ptr_wdm = nullptr;
+            curl_easy_getinfo(chan, CURLINFO_PRIVATE, &ptr_wdm);
+            if (ptr_wdm != nullptr) {
+                baselog::info("[ns] channel done: size= {}", ptr_wdm->buf.size());
+                ptr_wdm->buf.clear();
+            }
+            PrivateBufThreadSafe().retrieve(ptr_wdm);
+        } while (1);
+    } while (1);
+}
+
+void main_multi_with_poll()
 {
+    if (!baselog::initialize(baselog::log_sink::windebug_sink)) {
+        std::cout << "baselog init failed" << std::endl;
+        return;
+    }
+
+    curl_global_init(CURL_GLOBAL_ALL);
+    //std::thread thrd(thread_proc);
+    if (!PrivateBufThreadSafe().init()) {
+        baselog::error("private buf with not thread safe init failed.");
+        return;
+    }
+
+    g_curl_man = curl_multi_init();
+
+    std::thread service_thrd(service_thread_proc);
+    std::thread channel_thrd(channel_thread_proc);
+    service_thrd.join();
+    channel_thrd.join();
+
+    curl_multi_cleanup(g_curl_man);
+    curl_global_cleanup();
+    //auto chan = create_channel();
+    //if (nullptr == chan) {
+    //    baselog::error("create channel failed");
+    //    return;
+    //}
+    /* add the individual easy handle */
+    //auto ret = curl_multi_add_handle(curl_man, chan);
+
+    //int still_running = 0;
+
+    //do {
+    //    CURLMcode mc;
+    //    int numfds;
+
+    //    mc = curl_multi_perform(curl_man, &still_running);
+
+    //    if (mc == CURLM_OK) {
+    //        /* wait for activity or timeout */
+    //        mc = curl_multi_poll(curl_man, NULL, 0, 1000, &numfds);
+    //    }
+
+    //    if (mc != CURLM_OK) {
+    //        fprintf(stderr, "curl_multi failed, code %d.\n", mc);
+    //        break;
+    //    }
+
+    //} while (still_running);
+
+    //auto p = PrivateBufNotThreadSafe().borrow();
+    //curl_multi_remove_handle(curl_man, chan);
 }
  
 }
@@ -175,9 +364,8 @@ int run_multiple_form_data_request()
 
 }
 
-
 int _tmain(int argc, _TCHAR* argv[])
 {
-    return async_stuff::run();
+    return async_stuff::main_multi_with_poll();
 }
 

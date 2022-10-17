@@ -27,7 +27,7 @@ public:
     virtual bool close() = 0;
 
     virtual INetChannel* create_channel() = 0;
-    virtual bool         remove_channel(INetChannel*) = 0;
+    virtual void         remove_channel(INetChannel*) = 0;
 };
 
 class INetChannel {
@@ -40,10 +40,10 @@ public:
 
     typedef std::function<void(int type, void *data, void *data2, void *data3)> CallbackType;
     virtual bool post_request(const std::string &url, CallbackType callback = 0, void *param = 0, int timeout_ms = -1) = 0;
-    virtual bool send_request(const std::string& url, void* param) = 0;
+    virtual bool send_request(const std::string& url, CallbackType callback, void* param) = 0;
 
-    virtual bool send_stop() = 0;
-    virtual bool post_stop() = 0;
+    virtual void send_stop() = 0;
+    virtual void post_stop() = 0;
     virtual bool add_form_data(const std::string &name, const std::string &content) = 0;
     virtual bool add_form_file(const std::string &name, const std::string &content, const std::string &filename) = 0;
 

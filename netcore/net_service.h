@@ -19,9 +19,31 @@ public:
     HandleShell(HandleShell&& hs) :
         _handle(std::move(hs._handle)) {
     }
+    void reset_for_distrib_pool() {
+    }
+
+    base::win::HandleTraits::Handle Get() {
+        return _handle.get();
+    }
+private:
     base::win::ScopedHandle _handle;
 };
 
+struct LibcurlPrivateInfo
+{
+    std::string url;
+    CallbackType cb;
+    void* param {nullptr};
+    NetChannel* chan {nullptr};
+    int timeout_ms{ TIMEOUT_MS_INFINITE };
+    void reset_for_distrib_pool() {
+        url.clear();
+        cb.swap(std::move(CallbackType()));
+        param = nullptr;
+        chan = nullptr;
+        timeout_ms = TIMEOUT_MS_INFINITE;
+    }
+};
 
 class NetService : public INetService
 { 
@@ -42,24 +64,41 @@ public:
     void send_request(NSCallBack callback);
     void post_request(NSCallBack callback);
     HandleShell* borrow_event_shell();
+    bool restore_event_shell(HandleShell* ptr);
 
     //callback functions
-    bool on_close_channel(void* param);
-    bool on_channel_request(NetChannel* chan);
+    //bool on_chanel_send_stop(NetChannel* channel);
+    //bool on_chanel_post_stop(NetChannel* channel);
+    bool on_channel_close(NetChannel* channel);
+    bool on_chanel_remove(NetChannel* channel);
+    bool on_channel_request(NetChannel* chan,
+        const std::string url, CallbackType cb, void* param, int timeout_ms);
 
     //libcurl callbacks
     static size_t on_callback_curl_write(
         char* ptr, size_t size, size_t nmemb, void* userdata);
+    static size_t on_callback_curl_head(
+        char* buffer, size_t size, size_t nitems, void* userdata);
+    static int on_callback_curl_progress(
+        void* clientp,
+        curl_off_t dltotal,
+        curl_off_t dlnow,
+        curl_off_t ultotal,
+        curl_off_t ulnow);
 private:
     void thread_proc();
     void wake_up_event();
 
-    void do_pending_task_threadin(std::deque<TaskInfo> &tasks);
-    void do_finish_channel_threadin();
+    void do_pending_task(std::deque<TaskInfo> &tasks);
+    void do_finish_channel();
+
+    LibcurlPrivateInfo* borrow_private_info();
+    bool restore_private_info(LibcurlPrivateInfo* ptr);
 
     std::thread _thread;
     base::DistribPoolThreadSafe<NetChannel> _channel_pool;
     base::DistribPoolThreadSafe<HandleShell> _event_pool;
+    base::DistribPoolThreadSafe<LibcurlPrivateInfo> _curl_private_pool;
 
     bool _is_stopped{ true };
 

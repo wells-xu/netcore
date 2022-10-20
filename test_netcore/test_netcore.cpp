@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <atomic>
 
 #include <base/log/logger.h>
 
@@ -14,21 +15,23 @@ void on_call(int type, void *data, void *data2, void *data3)
     baselog::info("[main] on_called...");
 }
 
-void thread_request()
+std::atomic_bool g_is_stop {false};
+void thread_request(netcore::INetChannel *chan)
 {
-    while (1) {
-        auto chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+    while (!g_is_stop) {
         if (chan == nullptr) {
             baselog::error("create channel failed");
             return;
         }
 
-        auto ret = chan->post_request("https://macx.net", std::bind(
+        baselog::trace("[ns] ready to  post a request...");
+        auto ret = chan->send_request("https://example.com", std::bind(
             on_call, std::placeholders::_1, std::placeholders::_2,
             std::placeholders::_3, std::placeholders::_4));
         baselog::info("new request had posted: {}", ret);
+        //std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000));
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        break;
     }
 }
 
@@ -45,16 +48,23 @@ int _tmain(int argc, _TCHAR* argv[])
     }
     baselog::debug("load netcore successed");
 
-    std::thread work_thread(thread_request);
-
-    char x = 0;
-    std::cin >> x;
-    baselog::info("netcore tester exited safe");
+    auto chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+    std::thread work_thread(thread_request, chan);
+    //char x = 0;
+    //std::cin >> x;
+    //g_is_stop.store(true);
+    baselog::info("waiting send stop...");
+    std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
+    //chan->send_stop();
+    work_thread.join();
+    baselog::info("remove channel...");
+    NetcoreWrapper::Instance().NetServiceInstance()->remove_channel(chan);
     if (!NetcoreWrapper::Instance().UnInitialize()) {
         baselog::error("net service uninit failed");
         return 1;
     }
 
+    baselog::info("all done");
 	return 0;
 }
 

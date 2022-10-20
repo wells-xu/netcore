@@ -245,7 +245,8 @@ void service_thread_proc() {
             }
 
             auto chan = m->easy_handle;
-            curl_multi_remove_handle(g_curl_man, m->easy_handle);
+            auto xxxret = curl_multi_remove_handle(g_curl_man, m->easy_handle);
+            xxxret = curl_multi_remove_handle(g_curl_man, m->easy_handle);
 
             WriteDataMemory* ptr_wdm = nullptr;
             curl_easy_getinfo(chan, CURLINFO_PRIVATE, &ptr_wdm);

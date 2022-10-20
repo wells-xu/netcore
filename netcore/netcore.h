@@ -21,6 +21,9 @@ DLL_NETCORE_API bool         net_service_startup();
 DLL_NETCORE_API INetService* net_service_instance();
 DLL_NETCORE_API bool         net_service_shutdown(INetService*);
 
+static const int TIMEOUT_MS_INFINITE = 0;
+typedef std::function<void(int type, void* data, void* data2, void* data3)> CallbackType;
+
 class INetService {
 public:
     virtual bool init() = 0;
@@ -32,22 +35,26 @@ public:
 
 class INetChannel {
 public:
-    virtual bool init() = 0;
-
     virtual bool set_header(const std::string& header) = 0;
-    virtual bool set_body() = 0;
-    virtual bool set_cookie() = 0;
+    virtual bool set_body(const std::string& body) = 0;
+    virtual bool set_cookie(const std::string& cookie) = 0;
+    virtual bool set_mime_data(const std::string &part_name_utf8,
+        const std::string &file_data_utf8, const std::string &part_type = "") = 0;
+    virtual bool set_mime_file(const std::string &part_name_utf8,
+        const std::string &file_path_utf8, const std::string &remote_name_utf8,
+        const std::string &part_type = "") = 0;
 
-    typedef std::function<void(int type, void *data, void *data2, void *data3)> CallbackType;
-    virtual bool post_request(const std::string &url, CallbackType callback = 0, void *param = 0, int timeout_ms = -1) = 0;
-    virtual bool send_request(const std::string& url, CallbackType callback, void* param) = 0;
+    virtual bool post_request(const std::string &url,
+        CallbackType callback = 0, void *context = 0,
+        int timeout_ms = TIMEOUT_MS_INFINITE) = 0;
+    virtual bool send_request(const std::string &url,
+        CallbackType callback = 0, void *context = 0,
+        int timeout_ms = TIMEOUT_MS_INFINITE) = 0;
 
     virtual void send_stop() = 0;
     virtual void post_stop() = 0;
-    virtual bool add_form_data(const std::string &name, const std::string &content) = 0;
-    virtual bool add_form_file(const std::string &name, const std::string &content, const std::string &filename) = 0;
 
-    virtual void on_callback() = 0;
+    //virtual void on_callback() = 0;
 };
 
 }

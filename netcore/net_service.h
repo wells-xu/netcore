@@ -29,6 +29,28 @@ private:
     base::win::ScopedHandle _handle;
 };
 
+class CurlMHandleTraits {
+public:
+    using Handle = CURLM*;
+
+    CurlMHandleTraits() = delete;
+    CurlMHandleTraits(const CurlMHandleTraits&) = delete;
+    CurlMHandleTraits& operator=(const CurlMHandleTraits&) = delete;
+
+    // Closes the handle.
+    static bool BASE_EXPORT CloseHandle(Handle handle) {
+        return (CURLM_OK == curl_multi_cleanup(handle));
+    }
+
+    // Returns true if the handle value is valid.
+    static bool IsHandleValid(Handle handle) {
+        return handle != nullptr;
+    }
+
+    // Returns NULL handle value.
+    static Handle NullHandle() { return nullptr; }
+};
+
 struct LibcurlPrivateInfo
 {
     std::string url;
@@ -54,7 +76,8 @@ public:
     virtual bool init();
     virtual bool close();
     virtual INetChannel* create_channel();
-    virtual void         remove_channel(INetChannel*);
+    virtual INetChannel* create_clone_channel(INetChannel* chan);
+    virtual void         remove_channel(INetChannel* chan);
 
     typedef std::function<bool()> NSCallBack;
     typedef struct _TaskInfo {
@@ -102,9 +125,12 @@ private:
 
     bool _is_stopped{ true };
 
-    CURLM* _net_handle;
+    using CurlMScopedHandle =
+        base::win::GenericScopedHandle<CurlMHandleTraits, base::win::DummyVerifierTraits>;
+
+    CurlMScopedHandle _net_handle;
     std::mutex _main_mutex;
-    std::condition_variable _main_loop_event;
+    //std::condition_variable _main_loop_event;
 
     std::deque<TaskInfo> _pending_tasks;
 };

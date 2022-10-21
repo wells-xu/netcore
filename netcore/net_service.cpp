@@ -14,8 +14,7 @@ HandleShell::HandleShell() :
 }
 HandleShell::~HandleShell() = default;
 
-NetService::NetService() :
-    _net_handle(curl_multi_init())
+NetService::NetService()
 {
 }
 
@@ -25,15 +24,16 @@ NetService::~NetService()
 
 bool NetService::init()
 {
-    if (_net_handle == nullptr) {
-        return false;
-    }
-
     {
 		std::unique_lock<std::mutex> ul(_main_mutex);
         if (!_is_stopped) {
             return true;
         }
+
+        if (_net_handle.IsValid()) {
+            return false;
+        }
+        _net_handle.Set(curl_multi_init());
 
         if (!_channel_pool.init()) {
             baselog::error("[ns] channel pool inited failed");
@@ -75,13 +75,15 @@ bool NetService::close()
     if (_thread.joinable()) {
         _thread.join();
     }
-    return (CURLM_OK == curl_multi_cleanup(_net_handle));
+
+    _net_handle.Close();
+    return true;
 }
 
 void NetService::wake_up_event()
 {
-    _main_loop_event.notify_one();
-    curl_multi_wakeup(this->_net_handle);
+    //_main_loop_event.notify_one();
+    curl_multi_wakeup(this->_net_handle.Get());
 }
 
 void NetService::do_pending_task(std::deque<TaskInfo>& tasks)
@@ -97,28 +99,28 @@ void NetService::do_finish_channel()
 {
     //read completed channels
     do {
-         int msgq = 0;
-         auto m = curl_multi_info_read(_net_handle, &msgq);
-         if (m == nullptr) {
+        int msgq = 0;
+        auto m = curl_multi_info_read(_net_handle.Get(), &msgq);
+        if (m == nullptr) {
              baselog::trace("[ns] do_finish_channel_threadin empty");
              break;
-         }
+        }
 
-         baselog::trace("[ns] do_finish_channel_threadin new channel done: {}", (void*)m->easy_handle);
-         LibcurlPrivateInfo* ptr_pri = 0;
-         curl_easy_getinfo(m->easy_handle, CURLINFO_PRIVATE, &ptr_pri);
-         if (ptr_pri == nullptr) {
-             IMMEDIATE_CRASH();
-         }
-         this->on_channel_close(ptr_pri->chan);
-         //curl_multi_remove_handle(_net_handle, m->easy_handle);
+        baselog::trace("[ns] do_finish_channel_threadin new channel done: {}", (void*)m->easy_handle);
+        LibcurlPrivateInfo* ptr_pri = nullptr;
+        curl_easy_getinfo(m->easy_handle, CURLINFO_PRIVATE, &ptr_pri);
+        if (ptr_pri == nullptr) {
+            IMMEDIATE_CRASH();
+        }
+        this->on_channel_close(ptr_pri->chan);
+        //curl_multi_remove_handle(_net_handle, m->easy_handle);
 
-         //WriteDataMemory* ptr_wdm = nullptr;
-         //curl_easy_getinfo(chan, CURLINFO_PRIVATE, &ptr_wdm);
-         //if (ptr_wdm != nullptr) {
-         //    baselog::info("[ns] channel done: size= {}", ptr_wdm->buf.size());
-         //    ptr_wdm->buf.clear();
-         //}
+        //WriteDataMemory* ptr_wdm = nullptr;
+        //curl_easy_getinfo(chan, CURLINFO_PRIVATE, &ptr_wdm);
+        //if (ptr_wdm != nullptr) {
+        //    baselog::info("[ns] channel done: size= {}", ptr_wdm->buf.size());
+        //    ptr_wdm->buf.clear();
+        //}
          //PrivateBufThreadSafe().retrieve(ptr_wdm);
      } while (1);
 }
@@ -127,7 +129,7 @@ void NetService::thread_proc()
 {
     do {
         int still_running = 0;
-        auto mc = curl_multi_perform(_net_handle, &still_running);
+        auto mc = curl_multi_perform(_net_handle.Get(), &still_running);
         if (mc != CURLM_OK) {
             baselog::error("[ns] curl_multi_perform failed");
             break;
@@ -152,7 +154,7 @@ void NetService::thread_proc()
         do_finish_channel();
 
         int numfds = 0;
-        mc = curl_multi_poll(_net_handle, NULL, 0, 5000, &numfds);
+        mc = curl_multi_poll(_net_handle.Get(), NULL, 0, 5000, &numfds);
         if (mc != CURLM_OK) {
             baselog::error("[ns] curl_multi_poll failed");
             break;
@@ -180,6 +182,39 @@ INetChannel* NetService::create_channel()
     }
     baselog::info("[netcore] create_channel successed: {}", (void*)chan);
     return chan;
+}
+
+INetChannel* NetService::create_clone_channel(INetChannel* chan)
+{
+    if (chan == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    {
+        std::unique_lock<std::mutex> ul(_main_mutex);
+        if (_is_stopped) {
+            return false;
+        }
+
+        if (!_channel_pool.is_valid(dynamic_cast<NetChannel*>(chan))) {
+            return nullptr;
+        }
+    }
+
+    auto new_chan = this->_channel_pool.borrow();
+    if (new_chan == nullptr) {
+        IMMEDIATE_CRASH();
+        return nullptr;
+    }
+
+    if (!new_chan->init(this, dynamic_cast<NetChannel*>(chan))) {
+        //baselog::fatal("create channel failed");
+        IMMEDIATE_CRASH();
+        return nullptr;
+    }
+
+    baselog::info("[netcore] create_clone_channel successed: {}", (void*)new_chan);
+    return new_chan;
 }
 
 void NetService::remove_channel(INetChannel* chan)
@@ -261,7 +296,7 @@ bool NetService::on_channel_close(NetChannel* channel)
     }
 
     baselog::trace("[ns] on_channel_close remove channel from libcurl...");
-    auto ret = curl_multi_remove_handle(_net_handle, channel->get_handle());
+    auto ret = curl_multi_remove_handle(_net_handle.Get(), channel->get_handle());
     if (ret != CURLM_OK) {
         IMMEDIATE_CRASH();
         return false;
@@ -367,9 +402,10 @@ bool NetService::on_channel_request(NetChannel* chan,
     curl_easy_setopt(chan->get_handle(), CURLOPT_TIMEOUT_MS, timeout_ms);
     //Set to zero to switch to the default built-in connection timeout - 300 seconds
     curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 1);
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 10);
     //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
 
-    auto ret = curl_multi_add_handle(this->_net_handle, chan->get_handle());
+    auto ret = curl_multi_add_handle(this->_net_handle.Get(), chan->get_handle());
     if (ret != CURLE_OK) {
         baselog::warn("[ns] curl_multi_add_handle failed");
     }

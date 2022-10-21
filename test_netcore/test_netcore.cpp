@@ -26,6 +26,7 @@ void thread_request(netcore::INetChannel *chan)
 
         baselog::trace("[ns] ready to  post a request...");
         auto ret = chan->send_request("https://example.com", std::bind(
+        //auto ret = chan->send_request("https://macx.net", std::bind(
             on_call, std::placeholders::_1, std::placeholders::_2,
             std::placeholders::_3, std::placeholders::_4));
         baselog::info("new request had posted: {}", ret);

@@ -87,7 +87,7 @@ public:
     NetChannel();
     ~NetChannel() = default;
 
-    bool init(NetService* host);
+    bool init(NetService* host, NetChannel *chan = nullptr);
 
     virtual bool set_header(const std::string& header);
     virtual bool set_body(const std::string& header);

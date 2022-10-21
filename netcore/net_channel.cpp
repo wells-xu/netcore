@@ -19,24 +19,35 @@ bool CurlHandleTraits::CloseHandle(Handle handle)
 }
 
 //NetChannel defines
-NetChannel::NetChannel() :
-    _net_handle(curl_easy_init())
+NetChannel::NetChannel()
 {
 }
 
-bool NetChannel::init(NetService *host)
+bool NetChannel::init(NetService *host, NetChannel* chan)
 {
     if (host == nullptr) {
         return false;
     }
 
-    if (is_running()) {
-        return false;
-    }
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return false;
+        }
 
-    if (!_net_handle.IsValid()) {
-        baselog::fatal("[ns] net channel init failed");
-        return false;
+        if (chan != nullptr) {
+            if (chan->get_handle() == nullptr) {
+                IMMEDIATE_CRASH();
+            }
+
+            if (_net_handle.IsValid()) {
+                _net_handle.Close();
+            }
+
+            _net_handle.Set(curl_easy_duphandle(chan->get_handle()));
+        } else {
+            _net_handle.Set(curl_easy_init());
+        }
     }
 
     _host_service = host;

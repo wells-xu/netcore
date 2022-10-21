@@ -30,6 +30,7 @@ public:
     virtual bool close() = 0;
 
     virtual INetChannel* create_channel() = 0;
+    virtual INetChannel* create_clone_channel(INetChannel*) = 0;
     virtual void         remove_channel(INetChannel*) = 0;
 };
 

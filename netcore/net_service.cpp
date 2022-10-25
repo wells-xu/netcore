@@ -5,6 +5,11 @@
 
 #include <base/log/logger.h>
 #include <base/comm/immediate_crash.h>
+#include <base/comm/valid_enum.h>
+
+REGISTER_ENUM_VALUES(netcore::NetResultCode,
+    netcore::NetResultCode::CURLE_OK,
+    netcore::NetResultCode::CURLE_UNSUPPORTED_PROTOCOL);
 
 namespace netcore {
 
@@ -20,6 +25,7 @@ NetService::NetService()
 
 NetService::~NetService()
 {
+    baselog::trace("[ns] ~NetService");
 }
 
 bool NetService::init()
@@ -51,6 +57,7 @@ bool NetService::init()
         }
 
         _thread = std::move(std::thread(&NetService::thread_proc, this));
+        _user_thread = std::move(std::thread(&NetService::user_thread_proc, this));
         _is_stopped = false;
     }
 
@@ -76,13 +83,17 @@ bool NetService::close()
         _thread.join();
     }
 
+    if (_user_thread.joinable()) {
+        _user_thread.join();
+    }
+
     _net_handle.Close();
     return true;
 }
 
 void NetService::wake_up_event()
 {
-    //_main_loop_event.notify_one();
+    _user_loop_event.notify_one();
     curl_multi_wakeup(this->_net_handle.Get());
 }
 
@@ -100,28 +111,41 @@ void NetService::do_finish_channel()
     //read completed channels
     do {
         int msgq = 0;
-        auto m = curl_multi_info_read(_net_handle.Get(), &msgq);
-        if (m == nullptr) {
+        auto msg = curl_multi_info_read(_net_handle.Get(), &msgq);
+        if (msg == nullptr) {
              baselog::trace("[ns] do_finish_channel_threadin empty");
              break;
         }
 
-        baselog::trace("[ns] do_finish_channel_threadin new channel done: {}", (void*)m->easy_handle);
+        baselog::trace("[ns] do_finish_channel new channel done: {}", (void*)msg->easy_handle);
+
         LibcurlPrivateInfo* ptr_pri = nullptr;
-        curl_easy_getinfo(m->easy_handle, CURLINFO_PRIVATE, &ptr_pri);
+        curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &ptr_pri);
         if (ptr_pri == nullptr) {
             IMMEDIATE_CRASH();
         }
-        this->on_channel_close(ptr_pri->chan);
-        //curl_multi_remove_handle(_net_handle, m->easy_handle);
+        if (ptr_pri->chan == nullptr) {
+            IMMEDIATE_CRASH();
+        }
+        NetResultCode nrc = static_cast<NetResultCode>(CURLE_QUOTE_ERROR);
+        
+        if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_FINISH)) {
+            auto ret = curl_multi_remove_handle(_net_handle.Get(), ptr_pri->chan->get_handle());
+            if (ret != CURLM_OK) {
+                IMMEDIATE_CRASH();
+                return;
+            }
 
-        //WriteDataMemory* ptr_wdm = nullptr;
-        //curl_easy_getinfo(chan, CURLINFO_PRIVATE, &ptr_wdm);
-        //if (ptr_wdm != nullptr) {
-        //    baselog::info("[ns] channel done: size= {}", ptr_wdm->buf.size());
-        //    ptr_wdm->buf.clear();
-        //}
-         //PrivateBufThreadSafe().retrieve(ptr_wdm);
+            ptr_pri->delivered_type = NetResultType::NRT_ONCB_FINISH;
+            {
+                std::unique_lock<std::mutex> ul(_user_mutex);
+                _pending_user_callbacks.push_back(ptr_pri);
+            }
+            _user_loop_event.notify_one();
+        } else {
+            this->on_channel_close(ptr_pri->chan);
+            this->restore_private_info(ptr_pri);
+        }
      } while (1);
 }
 
@@ -139,7 +163,8 @@ void NetService::thread_proc()
         {
             std::unique_lock<std::mutex> ul(_main_mutex);
             if (_is_stopped) {
-                baselog::warn("[ns] main work proc exited, pending task num= {}", _pending_tasks.size());
+                baselog::warn("[ns] main work thread exited, pending task num= {}", _pending_tasks.size());
+                do_pending_task(_pending_tasks);
                 break;
             }
 
@@ -159,6 +184,45 @@ void NetService::thread_proc()
             baselog::error("[ns] curl_multi_poll failed");
             break;
         }
+    } while (1);
+}
+
+void NetService::user_thread_proc()
+{
+    do {
+        std::deque<LibcurlPrivateInfo*> user_cbs;
+        {
+            std::unique_lock<std::mutex> ul(_user_mutex);
+            _user_loop_event.wait(ul, [this]() {
+                return (_is_stopped || !_pending_user_callbacks.empty());
+            });
+
+            if (_is_stopped) {
+                baselog::warn("[ns] user work thread exited, pending task num= {}", _pending_user_callbacks.size());
+                //while (!_pending_user_callbacks.empty()) {
+                //    _pending_user_callbacks.front()->reset(); 
+                //    restore_private_info(_pending_user_callbacks.front());
+                //    _pending_user_callbacks.pop_front();
+                //}
+                _pending_user_callbacks.clear();
+                break;
+            }
+
+            if (!_pending_user_callbacks.empty()) {
+                user_cbs.swap(_pending_user_callbacks);
+            }
+        }
+
+        while (!user_cbs.empty()) {
+            auto ptr_pri = user_cbs.front();
+            ptr_pri->cb(ptr_pri->delivered_type, nullptr, ptr_pri->param);
+            if (ptr_pri->delivered_type == NetResultType::NRT_ONCB_FINISH) {
+                clean_channel(ptr_pri->chan);
+                this->restore_private_info(ptr_pri);
+            }
+            user_cbs.pop_front();
+        }
+
     } while (1);
 }
 
@@ -195,10 +259,10 @@ INetChannel* NetService::create_clone_channel(INetChannel* chan)
         if (_is_stopped) {
             return false;
         }
+    }
 
-        if (!_channel_pool.is_valid(dynamic_cast<NetChannel*>(chan))) {
-            return nullptr;
-        }
+    if (!_channel_pool.is_valid(dynamic_cast<NetChannel*>(chan))) {
+        return nullptr;
     }
 
     auto new_chan = this->_channel_pool.borrow();
@@ -226,7 +290,7 @@ void NetService::remove_channel(INetChannel* chan)
     }
 
     this->post_request(std::bind(
-        &NetService::on_chanel_remove, this, channel));
+        &NetService::on_channel_remove, this, channel));
 }
 
 void NetService::send_request(NSCallBack callback)
@@ -270,6 +334,11 @@ HandleShell* NetService::borrow_event_shell()
 
 bool NetService::restore_event_shell(HandleShell* hs)
 {
+    if (hs == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    ::ResetEvent(hs->Get());
     return _event_pool.retrieve(hs);
 }
 
@@ -285,6 +354,10 @@ LibcurlPrivateInfo* NetService::borrow_private_info()
 
 bool NetService::restore_private_info(LibcurlPrivateInfo* ptr)
 {
+    if (ptr == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+    ptr->reset();
     return _curl_private_pool.retrieve(ptr);
 }
 
@@ -302,16 +375,34 @@ bool NetService::on_channel_close(NetChannel* channel)
         return false;
     }
 
+    clean_channel(channel);
+    return true;
+}
+
+void NetService::clean_channel(NetChannel* channel)
+{
     auto event = channel->get_wait_event();
     if (event != nullptr) {
         ::SetEvent(event->Get());
     }
-    channel->reset_multi_thread();
-    return true;
+
+    //curl_easy_setopt(channel->get_handle(), CURLOPT_PRIVATE, nullptr);
+    //curl_easy_setopt(channel->get_handle(), CURLOPT_WRITEDATA, nullptr);
+    ////curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &CNetManager::curl_write_cb);
+    //curl_easy_setopt(channel->get_handle(), CURLOPT_XFERINFODATA, nullptr);
+    ////curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, &CNetManager::curl_progress_cb);
+    //curl_easy_setopt(channel->get_handle(), CURLOPT_NOPROGRESS, 0);
+    ////curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, &CNetManager::curl_after_sock_create_cb);
+    //curl_easy_setopt(channel->get_handle(), CURLOPT_SOCKOPTDATA, nullptr);
+    ////curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, &CNetManager::curl_header_callback);
+    //curl_easy_setopt(channel->get_handle(), CURLOPT_HEADERDATA, nullptr);
+
+    channel->reset_thread_safe();
 }
 
-bool NetService::on_chanel_remove(NetChannel* channel)
+bool NetService::on_channel_remove(NetChannel* channel)
 {
+    baselog::trace("[ns] on_channel_remove chan= {}", (void*)channel);
     this->on_channel_close(channel);
     if (!this->_channel_pool.retrieve(channel)) {
         IMMEDIATE_CRASH();
@@ -335,7 +426,16 @@ size_t NetService::on_callback_curl_write(
 size_t NetService::on_callback_curl_head(
     char* buffer, size_t size, size_t nitems, void* userdata)
 {
-    baselog::trace("[ns] on_callback_curl_head content= {}", buffer);
+    auto chan = reinterpret_cast<LibcurlPrivateInfo*>(userdata);
+    if (chan == nullptr) {
+    }
+    //baselog::trace("is_valid_enum: 0{}", base::is_valid_enum<NetResultCode>(0));
+    //baselog::trace("is_valid_enum: 1{}", base::is_valid_enum<NetResultCode>(1));
+    //baselog::trace("is_valid_enum: 2{}", base::is_valid_enum<NetResultCode>(2));
+
+    //if ((size * nitems) == 2) {
+        baselog::trace("[ns] on_callback_curl_head content= {} size= {}", buffer, (size * nitems));
+    //}
     return size_t(size * nitems);
 }
 
@@ -359,6 +459,7 @@ bool NetService::on_channel_request(NetChannel* chan,
 
     //create && assign private data
     auto pri_ptr = reinterpret_cast<void*>(borrow_private_info());
+    baselog::trace("[ns] new private info created: {}", pri_ptr);
     auto lpi = reinterpret_cast<LibcurlPrivateInfo*>(pri_ptr);
     lpi->chan = chan;
     lpi->cb = cb;
@@ -401,16 +502,11 @@ bool NetService::on_channel_request(NetChannel* chan,
     //Default timeout is 0 (zero) which means it never times out during transfer.
     curl_easy_setopt(chan->get_handle(), CURLOPT_TIMEOUT_MS, timeout_ms);
     //Set to zero to switch to the default built-in connection timeout - 300 seconds
-    curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 1);
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 1);
     //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 10);
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT_MS, timeout_ms); 
 
-    auto ret = curl_multi_add_handle(this->_net_handle.Get(), chan->get_handle());
-    if (ret != CURLE_OK) {
-        baselog::warn("[ns] curl_multi_add_handle failed");
-    }
-    baselog::trace("[ns] on_channel_request new request curl handle added= {}", (void*)chan->get_handle());
-
+    //private setting
     curl_easy_setopt(chan->get_handle(), CURLOPT_PRIVATE, pri_ptr);
 
     //write
@@ -432,8 +528,11 @@ bool NetService::on_channel_request(NetChannel* chan,
         CURLOPT_HEADERFUNCTION, &NetService::on_callback_curl_head);
     curl_easy_setopt(chan->get_handle(), CURLOPT_HEADERDATA, pri_ptr);
 
-    //relocation
-    //curl_easy_setopt(chan, CURLOPT_FOLLOWLOCATION, 1L);
+    auto ret = curl_multi_add_handle(this->_net_handle.Get(), chan->get_handle());
+    if (ret != CURLE_OK) {
+        baselog::warn("[ns] curl_multi_add_handle failed");
+    }
+    baselog::trace("[ns] on_channel_request new request curl handle added= {}", (void*)chan->get_handle());
     return true;
 }
 

@@ -19,8 +19,6 @@ public:
     HandleShell(HandleShell&& hs) :
         _handle(std::move(hs._handle)) {
     }
-    void reset_for_distrib_pool() {
-    }
 
     base::win::HandleTraits::Handle Get() {
         return _handle.get();
@@ -57,13 +55,16 @@ struct LibcurlPrivateInfo
     CallbackType cb;
     void* param {nullptr};
     NetChannel* chan {nullptr};
-    int timeout_ms{ TIMEOUT_MS_INFINITE };
-    void reset_for_distrib_pool() {
+    int timeout_ms{ TIMEOUT_MS_DEFAULT };
+    NetResultType delivered_type { NetResultType::NRT_ONCB_NONE };
+
+    void reset() {
         url.clear();
         cb.swap(std::move(CallbackType()));
         param = nullptr;
         chan = nullptr;
-        timeout_ms = TIMEOUT_MS_INFINITE;
+        timeout_ms = TIMEOUT_MS_DEFAULT;
+        delivered_type = NetResultType::NRT_ONCB_NONE;
     }
 };
 
@@ -93,7 +94,7 @@ public:
     //bool on_chanel_send_stop(NetChannel* channel);
     //bool on_chanel_post_stop(NetChannel* channel);
     bool on_channel_close(NetChannel* channel);
-    bool on_chanel_remove(NetChannel* channel);
+    bool on_channel_remove(NetChannel* channel);
     bool on_channel_request(NetChannel* chan,
         const std::string url, CallbackType cb, void* param, int timeout_ms);
 
@@ -110,15 +111,19 @@ public:
         curl_off_t ulnow);
 private:
     void thread_proc();
+    void user_thread_proc();
     void wake_up_event();
 
     void do_pending_task(std::deque<TaskInfo> &tasks);
     void do_finish_channel();
 
+    void clean_channel(NetChannel* chan);
+
     LibcurlPrivateInfo* borrow_private_info();
     bool restore_private_info(LibcurlPrivateInfo* ptr);
 
     std::thread _thread;
+    std::thread _user_thread;
     base::DistribPoolThreadSafe<NetChannel> _channel_pool;
     base::DistribPoolThreadSafe<HandleShell> _event_pool;
     base::DistribPoolThreadSafe<LibcurlPrivateInfo> _curl_private_pool;
@@ -130,9 +135,11 @@ private:
 
     CurlMScopedHandle _net_handle;
     std::mutex _main_mutex;
-    //std::condition_variable _main_loop_event;
-
     std::deque<TaskInfo> _pending_tasks;
+
+    std::mutex _user_mutex;
+    std::condition_variable _user_loop_event;
+    std::deque<LibcurlPrivateInfo*> _pending_user_callbacks;
 };
 
 } //namespace netcore

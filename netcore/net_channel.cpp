@@ -12,6 +12,7 @@ namespace netcore {
 bool CurlHandleTraits::CloseHandle(Handle handle)
 {
     if (IsHandleValid(handle)) {
+        baselog::trace("[ns] CloseHandle closing handle: {}", (void*)handle);
         curl_easy_cleanup(handle);
     }
 
@@ -34,22 +35,23 @@ bool NetChannel::init(NetService *host, NetChannel* chan)
         if (_is_processing) {
             return false;
         }
-
-        if (chan != nullptr) {
-            if (chan->get_handle() == nullptr) {
-                IMMEDIATE_CRASH();
-            }
-
-            if (_net_handle.IsValid()) {
-                _net_handle.Close();
-            }
-
-            _net_handle.Set(curl_easy_duphandle(chan->get_handle()));
-        } else {
-            _net_handle.Set(curl_easy_init());
-        }
     }
 
+    if (chan != nullptr) {
+        if (chan->get_handle() == nullptr) {
+            IMMEDIATE_CRASH();
+        }
+
+        if (_net_handle.IsValid()) {
+            _net_handle.Close();
+        }
+
+        _net_handle.Set(curl_easy_duphandle(chan->get_handle()));
+    } else if (!_net_handle.IsValid()) {
+        _net_handle.Set(curl_easy_init());
+    }
+    
+    baselog::info("[ns] libcurl easy handle: {}", (void*)_net_handle.Get());
     _host_service = host;
     return true;
 }
@@ -108,6 +110,58 @@ bool NetChannel::set_cookie(const std::string& cookie)
         this->_http_cookie = cookie;
     }
     return false;
+}
+
+void NetChannel::enable_callback(NetResultType nrt)
+{
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_HEADER)) {
+            this->_callback_switches |= flag;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_PROGRESS)) {
+            this->_callback_switches |= flag;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_WRITE)) {
+            this->_callback_switches |= flag;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_FINISH)) {
+            this->_callback_switches |= flag;
+        }
+    }
+}
+
+void NetChannel::disable_callback(NetResultType nrt)
+{
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_HEADER)) {
+            this->_callback_switches ^= flag;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_PROGRESS)) {
+            this->_callback_switches ^= flag;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_WRITE)) {
+            this->_callback_switches ^= flag;
+        }
+
+        if (auto flag = CHECK_NET_RESULT_TYPE(nrt, NetResultType::NRT_ONCB_FINISH)) {
+            this->_callback_switches ^= flag;
+        }
+    }
 }
 
 bool NetChannel::set_mime_data(const std::string& part_name,
@@ -306,7 +360,7 @@ bool NetChannel::send_request(
         std::lock_guard<std::mutex> lg(_main_mutex);
         _wait_event = nullptr;
     }
-    this->reset_multi_thread();
+    this->reset_thread_safe();
     baselog::trace("[ns] send_request all done");
     return true;
 }
@@ -342,7 +396,7 @@ void NetChannel::send_stop()
         _wait_event = nullptr;
     }
 
-    this->reset_multi_thread();
+    this->reset_thread_safe();
     baselog::trace("[ns] send_stop all done");
 }
 
@@ -362,7 +416,13 @@ HandleShell* NetChannel::get_wait_event()
     return _wait_event;
 }
 
-void NetChannel::reset_multi_thread()
+bool NetChannel::is_callback_switches_exist(NetResultType nrt)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    return IS_NET_RESULT_TYPE_CONTAIN(_callback_switches, nrt);
+}
+
+void NetChannel::reset_thread_safe()
 {
     {
         std::lock_guard<std::mutex> lg(_main_mutex);

@@ -93,6 +93,9 @@ public:
     virtual bool set_body(const std::string& header);
     virtual bool set_cookie(const std::string& cookie);
 
+    virtual void enable_callback(NetResultType nrt);
+    virtual void disable_callback(NetResultType nrt);
+
     virtual bool post_request(const std::string& url,
         CallbackType callback = 0, void* context = 0,
         int timeout_ms = TIMEOUT_MS_INFINITE);
@@ -114,8 +117,9 @@ public:
         return _net_handle.get();
     }
     HandleShell* get_wait_event();
-    void reset_multi_thread();
-    void reset_for_distrib_pool() {}
+    bool is_callback_switches_exist(NetResultType nrt);
+
+    void reset_thread_safe();
 private:
     bool is_running();
 
@@ -143,6 +147,15 @@ private:
     CurlMimeHandle _mime_part;
     std::string _http_body;
     std::string _http_cookie;
+
+    //callback
+    std::uint32_t _callback_switches
+        { static_cast<std::uint32_t>(NetResultType::NRT_ONCB_FINISH)};
+
+    //http transfering data storage
+    static const int kMaxHttpResponseBufSize = 1024 * 1024 * 8;
+    std::string _http_response_header;
+    std::string _http_response_content;
 };
 
 } //namespace netcore

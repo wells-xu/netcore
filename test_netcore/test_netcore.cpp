@@ -9,8 +9,9 @@
 #include <atomic>
 
 #include <base/log/logger.h>
+#include <base/math/rand_util.h>
 
-void on_call(int type, void *data, void *data2, void *data3)
+void on_call(netcore::NetResultType type, void* data, void* context)
 {
     baselog::info("[main] on_called...");
 }
@@ -24,13 +25,31 @@ void thread_request(netcore::INetChannel *chan)
             return;
         }
 
-        baselog::trace("[ns] ready to  post a request...");
+        //baselog::trace("[ns] ready to  post a request...");
+        //auto ret = chan->send_request("https://example.com", std::bind(
+        ////auto ret = chan->send_request("https://macx.net", std::bind(
+        //    on_call, std::placeholders::_1, std::placeholders::_2,
+        //    std::placeholders::_3));
+        //baselog::info("new request has done: {}", ret);
+        //auto ru64 = base::RandUint64() % 3000;
+        //baselog::trace("requesting done with some sleep: {}ms", ru64);
+        //std::this_thread::sleep_for(std::chrono::milliseconds(ru64));
+        //std::this_thread::sleep_for(std::chrono::milliseconds(1000 * 10));
+
+        baselog::info("send request start...");
         auto ret = chan->send_request("https://example.com", std::bind(
-        //auto ret = chan->send_request("https://macx.net", std::bind(
+            //auto ret = chan->send_request("https://macx.net", std::bind(
             on_call, std::placeholders::_1, std::placeholders::_2,
-            std::placeholders::_3, std::placeholders::_4));
-        baselog::info("new request had posted: {}", ret);
-        //std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000));
+            std::placeholders::_3));
+        baselog::info("send request end");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000 * 10));
+
+        baselog::info("send request start again...");
+        ret = chan->send_request("https://example.com", std::bind(
+            //auto ret = chan->send_request("https://macx.net", std::bind(
+            on_call, std::placeholders::_1, std::placeholders::_2,
+            std::placeholders::_3));
+        baselog::info("send request end");
 
         break;
     }
@@ -42,7 +61,7 @@ int _tmain(int argc, _TCHAR* argv[])
         baselog::error("baselog init failed");
         return 1;
     }
-
+    
     if (!NetcoreWrapper::Instance().Initialize()) {
         baselog::error("load netcore failed");
         return 1;
@@ -50,14 +69,30 @@ int _tmain(int argc, _TCHAR* argv[])
     baselog::debug("load netcore successed");
 
     auto chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
-    std::thread work_thread(thread_request, chan);
-    //char x = 0;
-    //std::cin >> x;
+    //std::thread work_thread(thread_request, chan);
     //g_is_stop.store(true);
-    baselog::info("waiting send stop...");
-    std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
+    //std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
     //chan->send_stop();
-    work_thread.join();
+
+    baselog::info("send request start...");
+    //auto ret = chan->send_request("https://example.com", std::bind(
+        auto ret = chan->send_request("https://macx.net", std::bind(
+        on_call, std::placeholders::_1, std::placeholders::_2,
+        std::placeholders::_3));
+    baselog::info("send request end");
+    //NetcoreWrapper::Instance().NetServiceInstance()->remove_channel(chan);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000 * 5));
+    //chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+    baselog::info("send request start again...");
+    ret = chan->send_request("https://example.com", std::bind(
+        //ret = chan->send_request("https://macx.net", std::bind(
+        on_call, std::placeholders::_1, std::placeholders::_2,
+        std::placeholders::_3));
+    baselog::info("send request end");
+    char x = 0;
+    std::cin >> x;
+    //work_thread.join();
     baselog::info("remove channel...");
     NetcoreWrapper::Instance().NetServiceInstance()->remove_channel(chan);
     if (!NetcoreWrapper::Instance().UnInitialize()) {

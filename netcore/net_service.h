@@ -56,7 +56,6 @@ struct LibcurlPrivateInfo
     void* param {nullptr};
     NetChannel* chan {nullptr};
     int timeout_ms{ TIMEOUT_MS_DEFAULT };
-    NetResultType delivered_type { NetResultType::NRT_ONCB_NONE };
 
     void reset() {
         url.clear();
@@ -64,7 +63,6 @@ struct LibcurlPrivateInfo
         param = nullptr;
         chan = nullptr;
         timeout_ms = TIMEOUT_MS_DEFAULT;
-        delivered_type = NetResultType::NRT_ONCB_NONE;
     }
 };
 
@@ -119,8 +117,22 @@ private:
 
     void clean_channel(NetChannel* chan);
 
+    struct UserCallbackTask {
+        std::string *data {nullptr};
+        NetResultType delivered_type{ NetResultType::NRT_ONCB_NONE };
+        LibcurlPrivateInfo* pri {nullptr};
+    };
+    void add_user_callback(UserCallbackTask uct);
+
     LibcurlPrivateInfo* borrow_private_info();
     bool restore_private_info(LibcurlPrivateInfo* ptr);
+
+    std::string* borrow_short_buffer();
+    bool restore_short_buffer(std::string* ptr);
+    std::string* borrow_wrote_buffer();
+    bool restore_wrote_buffer(std::string* ptr);
+
+    void do_user_pending_tasks(std::deque<UserCallbackTask> &tasks);
 
     std::thread _thread;
     std::thread _user_thread;
@@ -137,9 +149,11 @@ private:
     std::mutex _main_mutex;
     std::deque<TaskInfo> _pending_tasks;
 
+    base::DistribPoolNotThreadSafe<std::string> _short_buffer_pool;
+    base::DistribPoolNotThreadSafe<std::string> _wrote_buffer_pool;
     std::mutex _user_mutex;
     std::condition_variable _user_loop_event;
-    std::deque<LibcurlPrivateInfo*> _pending_user_callbacks;
+    std::deque<UserCallbackTask> _pending_user_callbacks;
 };
 
 } //namespace netcore

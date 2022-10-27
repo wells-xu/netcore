@@ -21,7 +21,7 @@ DLL_NETCORE_API bool         net_service_startup();
 DLL_NETCORE_API INetService* net_service_instance();
 DLL_NETCORE_API bool         net_service_shutdown(INetService*);
 
-static const int TIMEOUT_MS_INFINITE = -1;
+static const int TIMEOUT_MS_INFINITE = 0;
 static const int TIMEOUT_MS_DEFAULT = 20000;
 //codes from: https://curl.se/libcurl/c/libcurl-errors.html
 enum class NetResultCode {
@@ -74,30 +74,32 @@ enum class NetResultCode {
     //Proxy handshake error.CURLINFO_PROXY_ERROR provides extra details on the specific problem.
     CURLE_PROXY = 97, 
     //All other error type
-    CURLE_UNKOWN_ERROR = 0x800,
+    CURLE_UNKOWN_ERROR = 0x8000,
 };
 
 struct NetResultHeader {
-    NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
     const char* content = nullptr;
     std::int64_t content_len = 0;
 };
 
 struct NetResultProgress {
-    NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
-    std::int64_t total_size = 0;
-    std::int64_t received_size = 0;
-    std::uint32_t speed = 0;
+    std::int64_t download_total_size = 0;
+    std::int64_t download_transfered_size = 0;
+    std::int64_t upload_total_size = 0;
+    std::int64_t upload_transfered_size = 0;
+    std::uint64_t startup_time = 0;
+    std::uint64_t current_time = 0;
+    std::double_t download_speed = 0.0;
+    std::double_t upload_speed = 0.0;
 };
 
 struct NetResultWrite {
-    NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
     const char* content = nullptr;
     std::int64_t content_len = 0;
 };
 
 struct NetResultFinish {
-    NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
+    NetResultCode result_code{ NetResultCode::CURLE_OK };
     int http_status_code = 0;
     const char* http_content = nullptr;
     std::int64_t http_content_len = 0;
@@ -153,10 +155,10 @@ public:
 
     virtual bool post_request(const std::string &url,
         CallbackType callback = 0, void * userdata = 0,
-        int timeout_ms = TIMEOUT_MS_DEFAULT) = 0;
+        int timeout_ms = TIMEOUT_MS_INFINITE) = 0;
     virtual bool send_request(const std::string &url,
         CallbackType callback = 0, void *context = 0,
-        int timeout_ms = TIMEOUT_MS_DEFAULT) = 0;
+        int timeout_ms = TIMEOUT_MS_INFINITE) = 0;
 
     virtual void send_stop() = 0;
     virtual void post_stop() = 0;

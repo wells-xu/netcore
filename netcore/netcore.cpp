@@ -74,7 +74,7 @@ bool net_service_shutdown(INetService* netservice)
     auto ret = g_static_net_service->close();
     //delete g_static_net_service;
     //g_static_net_service = nullptr;
-    baselog::error("[ns] net service shutdown failed");
+    baselog::error("[ns] net service shutdown: {}", ret);
     return ret;
 }
 

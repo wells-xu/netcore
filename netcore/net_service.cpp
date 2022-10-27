@@ -9,7 +9,29 @@
 
 REGISTER_ENUM_VALUES(netcore::NetResultCode,
     netcore::NetResultCode::CURLE_OK,
-    netcore::NetResultCode::CURLE_UNSUPPORTED_PROTOCOL);
+    netcore::NetResultCode::CURLE_UNSUPPORTED_PROTOCOL,
+    netcore::NetResultCode::CURLE_FAILED_INIT,
+    netcore::NetResultCode::CURLE_URL_MALFORMAT,
+    netcore::NetResultCode::CURLE_NOT_BUILT_IN,
+    netcore::NetResultCode::CURLE_COULDNT_RESOLVE_PROXY,
+    netcore::NetResultCode::CURLE_COULDNT_RESOLVE_HOST,
+    netcore::NetResultCode::CURLE_COULDNT_CONNECT,
+    netcore::NetResultCode::CURLE_REMOTE_ACCESS_DENIED,
+    netcore::NetResultCode::CURLE_HTTP2,
+    netcore::NetResultCode::CURLE_PARTIAL_FILE,
+    netcore::NetResultCode::CURLE_WRITE_ERROR,
+    netcore::NetResultCode::CURLE_UPLOAD_FAILED,
+    netcore::NetResultCode::CURLE_READ_ERROR,
+    netcore::NetResultCode::CURLE_OUT_OF_MEMORY,
+    netcore::NetResultCode::CURLE_OPERATION_TIMEDOUT,
+    netcore::NetResultCode::CURLE_RANGE_ERROR,
+    netcore::NetResultCode::CURLE_SSL_CONNECT_ERROR,
+    netcore::NetResultCode::CURLE_BAD_DOWNLOAD_RESUME,
+    netcore::NetResultCode::CURLE_TOO_MANY_REDIRECTS,
+    netcore::NetResultCode::CURLE_UNKNOWN_OPTION,
+    netcore::NetResultCode::CURLE_BAD_CONTENT_ENCODING,
+    netcore::NetResultCode::CURLE_PROXY,
+    netcore::NetResultCode::CURLE_UNKOWN_ERROR);
 
 namespace netcore {
 
@@ -53,6 +75,16 @@ bool NetService::init()
 
         if (!_curl_private_pool.init()) {
             baselog::error("[ns] private pool inited failed");
+            return false;
+        }
+
+        if (!_short_buffer_pool.init(16, 10240)) {
+            baselog::error("[ns] short buffer pool inited failed");
+            return false;
+        }
+
+        if (!_wrote_buffer_pool.init(16, 10240)) {
+            baselog::error("[ns] short buffer pool inited failed");
             return false;
         }
 
@@ -117,7 +149,8 @@ void NetService::do_finish_channel()
              break;
         }
 
-        baselog::trace("[ns] do_finish_channel new channel done: {}", (void*)msg->easy_handle);
+        baselog::trace("[ns] do_finish_channel new channel done: {}, errcode= {}",
+            (void*)msg->easy_handle, (int)msg->data.result);
 
         LibcurlPrivateInfo* ptr_pri = nullptr;
         curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &ptr_pri);
@@ -136,12 +169,8 @@ void NetService::do_finish_channel()
                 return;
             }
 
-            ptr_pri->delivered_type = NetResultType::NRT_ONCB_FINISH;
-            {
-                std::unique_lock<std::mutex> ul(_user_mutex);
-                _pending_user_callbacks.push_back(ptr_pri);
-            }
-            _user_loop_event.notify_one();
+            this->add_user_callback(UserCallbackTask
+                { nullptr, NetResultType::NRT_ONCB_FINISH, ptr_pri });
         } else {
             this->on_channel_close(ptr_pri->chan);
             this->restore_private_info(ptr_pri);
@@ -190,7 +219,7 @@ void NetService::thread_proc()
 void NetService::user_thread_proc()
 {
     do {
-        std::deque<LibcurlPrivateInfo*> user_cbs;
+        std::deque<UserCallbackTask> user_cbs;
         {
             std::unique_lock<std::mutex> ul(_user_mutex);
             _user_loop_event.wait(ul, [this]() {
@@ -208,22 +237,66 @@ void NetService::user_thread_proc()
                 break;
             }
 
+            baselog::trace("[ns] user_thread_proc event fired...size= {}", _pending_user_callbacks.size());
             if (!_pending_user_callbacks.empty()) {
                 user_cbs.swap(_pending_user_callbacks);
             }
         }
 
-        while (!user_cbs.empty()) {
-            auto ptr_pri = user_cbs.front();
-            ptr_pri->cb(ptr_pri->delivered_type, nullptr, ptr_pri->param);
-            if (ptr_pri->delivered_type == NetResultType::NRT_ONCB_FINISH) {
-                clean_channel(ptr_pri->chan);
-                this->restore_private_info(ptr_pri);
+        do_user_pending_tasks(user_cbs);
+    } while (1);
+}
+
+void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
+{
+    baselog::trace("[ns] do_user_pending_tasks total size= {}", tasks.size());
+    while (!tasks.empty()) {
+        auto &task = tasks.front();
+       
+        baselog::trace("[ns] do_user_pending_tasks type= {}", (int)task.delivered_type);
+        if (task.pri->cb) {
+            if (task.delivered_type == NetResultType::NRT_ONCB_HEADER) {
+                NetResultHeader nrh;
+                nrh.content = task.data->c_str();
+                nrh.content_len = task.data->size();
+
+                task.pri->cb(task.delivered_type,
+                    reinterpret_cast<void*>(&nrh), task.pri->param);
+
+                if (!restore_short_buffer(task.data)) {
+                    IMMEDIATE_CRASH();
+                }
+            } else if (task.delivered_type == NetResultType::NRT_ONCB_PROGRESS) {
+                NetResultProgress nrp;
+                task.pri->chan->get_http_response_progress(nrp);
+
+                task.pri->cb(task.delivered_type,
+                    reinterpret_cast<void*>(&nrp), task.pri->param);
+            } else if (task.delivered_type == NetResultType::NRT_ONCB_WRITE) {
+                NetResultWrite nrw;
+                nrw.content = task.data->c_str();
+                nrw.content_len = task.data->size();
+
+                task.pri->cb(task.delivered_type,
+                    reinterpret_cast<void*>(&nrw), task.pri->param);
+
+                if (!restore_wrote_buffer(task.data)) {
+                    IMMEDIATE_CRASH();
+                }
+            } else if (task.delivered_type == NetResultType::NRT_ONCB_FINISH) {
+                NetResultFinish nrf;
+                task.pri->cb(task.delivered_type,
+                    reinterpret_cast<void*>(&nrf), task.pri->param);
+
+                clean_channel(task.pri->chan);
+                if (!restore_private_info(task.pri)) {
+                    IMMEDIATE_CRASH();
+                }
             }
-            user_cbs.pop_front();
         }
 
-    } while (1);
+        tasks.pop_front();
+    }
 }
 
 INetChannel* NetService::create_channel()
@@ -361,6 +434,44 @@ bool NetService::restore_private_info(LibcurlPrivateInfo* ptr)
     return _curl_private_pool.retrieve(ptr);
 }
 
+std::string* NetService::borrow_short_buffer()
+{
+    auto ptr = _short_buffer_pool.borrow();
+    if (ptr == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    return ptr;
+}
+
+bool NetService::restore_short_buffer(std::string* ptr)
+{
+    if (ptr == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+    ptr->clear();
+    return _short_buffer_pool.retrieve(ptr);
+}
+
+std::string* NetService::borrow_wrote_buffer()
+{
+    auto ptr = _wrote_buffer_pool.borrow();
+    if (ptr == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    return ptr;
+}
+
+bool NetService::restore_wrote_buffer(std::string* ptr)
+{
+    if (ptr == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+    ptr->clear();
+    return _wrote_buffer_pool.retrieve(ptr);
+}
+
 bool NetService::on_channel_close(NetChannel* channel)
 {
     if (channel == nullptr) {
@@ -384,20 +495,9 @@ void NetService::clean_channel(NetChannel* channel)
     auto event = channel->get_wait_event();
     if (event != nullptr) {
         ::SetEvent(event->Get());
+    } else {
+        channel->reset_thread_safe();
     }
-
-    //curl_easy_setopt(channel->get_handle(), CURLOPT_PRIVATE, nullptr);
-    //curl_easy_setopt(channel->get_handle(), CURLOPT_WRITEDATA, nullptr);
-    ////curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &CNetManager::curl_write_cb);
-    //curl_easy_setopt(channel->get_handle(), CURLOPT_XFERINFODATA, nullptr);
-    ////curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, &CNetManager::curl_progress_cb);
-    //curl_easy_setopt(channel->get_handle(), CURLOPT_NOPROGRESS, 0);
-    ////curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, &CNetManager::curl_after_sock_create_cb);
-    //curl_easy_setopt(channel->get_handle(), CURLOPT_SOCKOPTDATA, nullptr);
-    ////curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, &CNetManager::curl_header_callback);
-    //curl_easy_setopt(channel->get_handle(), CURLOPT_HEADERDATA, nullptr);
-
-    channel->reset_thread_safe();
 }
 
 bool NetService::on_channel_remove(NetChannel* channel)
@@ -413,29 +513,65 @@ bool NetService::on_channel_remove(NetChannel* channel)
 }
 
 size_t NetService::on_callback_curl_write(
-    char* ptr, size_t size, size_t nmemb, void* userdata)
+    char* buffer, size_t size, size_t nmemb, void* userdata)
 {
-    auto chan = reinterpret_cast<LibcurlPrivateInfo*>(userdata);
-    curl_off_t  content_len = 0;
-    auto ret = curl_easy_getinfo(chan->chan->get_handle(), CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_len);
-    baselog::trace("[ns] on_callback_curl_write received size= {} content_len= {} content= {}",
-        size * nmemb, content_len, std::string(ptr, size * nmemb));
+    auto ptr_pri = reinterpret_cast<LibcurlPrivateInfo*>(userdata);
+    if (ptr_pri == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+    if (ptr_pri->chan == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+    //curl_off_t  content_len = 0;
+    //auto ret = curl_easy_getinfo(chan->chan->get_handle(), CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_len);
+    ptr_pri->chan->feed_http_response_content(buffer, (size * nmemb));
+    if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_WRITE)) {
+        auto buf = ptr_pri->chan->host_service()->borrow_wrote_buffer();
+        if (buf == nullptr) {
+            IMMEDIATE_CRASH();
+        }
+        buf->assign(buffer, size * nmemb);
+        ptr_pri->chan->host_service()->add_user_callback(
+            UserCallbackTask{ buf, NetResultType::NRT_ONCB_WRITE, ptr_pri });
+    }
+
+    baselog::trace("[ns] on_callback_curl_write received size= {}", size * nmemb);
     return size_t(size * nmemb);
+}
+
+void NetService::add_user_callback(UserCallbackTask task)
+{
+    {
+        std::unique_lock<std::mutex> ul(_user_mutex);
+        _pending_user_callbacks.push_back(task);
+    }
+    baselog::trace("[ns] add_user_callback event emited...");
+    _user_loop_event.notify_one();
 }
 
 size_t NetService::on_callback_curl_head(
     char* buffer, size_t size, size_t nitems, void* userdata)
 {
-    auto chan = reinterpret_cast<LibcurlPrivateInfo*>(userdata);
-    if (chan == nullptr) {
+    auto ptr_pri = reinterpret_cast<LibcurlPrivateInfo*>(userdata);
+    if (ptr_pri == nullptr) {
+        IMMEDIATE_CRASH();
     }
-    //baselog::trace("is_valid_enum: 0{}", base::is_valid_enum<NetResultCode>(0));
-    //baselog::trace("is_valid_enum: 1{}", base::is_valid_enum<NetResultCode>(1));
-    //baselog::trace("is_valid_enum: 2{}", base::is_valid_enum<NetResultCode>(2));
+    baselog::trace("[ns] on_callback_curl_head: {}", std::string(buffer, size * nitems));
 
-    //if ((size * nitems) == 2) {
-        baselog::trace("[ns] on_callback_curl_head content= {} size= {}", buffer, (size * nitems));
-    //}
+    if (ptr_pri->chan == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    ptr_pri->chan->feed_http_response_header(buffer, (size * nitems));
+    if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_HEADER)) {
+        auto buf = ptr_pri->chan->host_service()->borrow_short_buffer();
+        if (buf == nullptr) {
+            IMMEDIATE_CRASH();
+        }
+        buf->assign(buffer, size * nitems);
+        ptr_pri->chan->host_service()->add_user_callback(
+            UserCallbackTask{buf, NetResultType::NRT_ONCB_HEADER, ptr_pri});
+    }
     return size_t(size * nitems);
 }
 
@@ -444,9 +580,26 @@ int NetService::on_callback_curl_progress(
     curl_off_t dltotal, curl_off_t dlnow,
     curl_off_t ultotal, curl_off_t ulnow)
 {
-    auto chan = reinterpret_cast<LibcurlPrivateInfo*>(clientp)->chan;
+    auto ptr_pri = reinterpret_cast<LibcurlPrivateInfo*>(clientp);
     baselog::trace("[ns] on_callback_curl_progress info= ({}.{}.{}.{})-{}",
-        dltotal, dlnow, ultotal, ulnow, (void*)chan);
+        dltotal, dlnow, ultotal, ulnow, (void*)ptr_pri->chan);
+
+    if (ptr_pri == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    if (ptr_pri->chan == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    if (!ptr_pri->chan->feed_http_response_progress(dltotal, dlnow, ultotal, ulnow)) {
+        return 0;
+    }
+
+    if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_PROGRESS)) {
+        ptr_pri->chan->host_service()->add_user_callback(
+            UserCallbackTask{ nullptr, NetResultType::NRT_ONCB_PROGRESS, ptr_pri });
+    }
     return 0;
 }
 

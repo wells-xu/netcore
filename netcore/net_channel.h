@@ -87,6 +87,8 @@ public:
     NetChannel();
     ~NetChannel() = default;
 
+    friend class NetService;
+
     bool init(NetService* host, NetChannel *chan = nullptr);
 
     virtual bool set_header(const std::string& header);
@@ -110,17 +112,26 @@ public:
     virtual bool set_mime_file(const std::string& part_name,
         const std::string& file_path, const std::string& remote_name,
         const std::string& part_type = "");
-
-    //void on_callback(NetCallbackType type, void* callback_param);
-
+private:
     CURL* get_handle() {
         return _net_handle.get();
+    }
+    NetService* host_service() {
+        return _host_service;
     }
     HandleShell* get_wait_event();
     bool is_callback_switches_exist(NetResultType nrt);
 
     void reset_thread_safe();
-private:
+
+    //https stuff
+    void feed_http_response_header(const char *buf, std::size_t len);
+    void feed_http_response_content(const char *buf, std::size_t len);
+    const char* get_http_response_header(std::size_t& len);
+    bool feed_http_response_progress(std::int64_t dltotal,
+        std::int64_t dlnow, std::int64_t ultotal, std::int64_t ulnow);
+    void get_http_response_progress(NetResultProgress &np);
+
     bool is_running();
 
     bool on_net_request_within_service();
@@ -132,7 +143,6 @@ private:
     HandleShell* _wait_event{ nullptr };
     NetService* _host_service {nullptr};
     std::mutex _main_mutex;
-    bool _is_inited = false;
     bool _is_processing{false};
 
     using CurlScopedHandle =
@@ -153,9 +163,14 @@ private:
         { static_cast<std::uint32_t>(NetResultType::NRT_ONCB_FINISH)};
 
     //http transfering data storage
+    std::int64_t _http_content_length = -1;
+    std::int64_t _http_status_code = 0;
     static const int kMaxHttpResponseBufSize = 1024 * 1024 * 8;
     std::string _http_response_header;
     std::string _http_response_content;
+    NetResultProgress _http_response_progress;
+    NetResultFinish _http_response_finish;
+
 };
 
 } //namespace netcore

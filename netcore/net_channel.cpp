@@ -5,6 +5,7 @@
 
 #include <base/log/logger.h>
 #include <base/comm/immediate_crash.h>
+#include <base/time/time.h>
 
 namespace netcore {
 
@@ -312,6 +313,7 @@ bool NetChannel::post_request(
             return false;
         }
 
+        _http_response_progress.startup_time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
         _is_processing = true;
     }
 
@@ -340,6 +342,7 @@ bool NetChannel::send_request(
         }
         _wait_event = _host_service->borrow_event_shell();
 
+        _http_response_progress.startup_time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
         _is_processing = true;
     }
 
@@ -360,7 +363,7 @@ bool NetChannel::send_request(
         std::lock_guard<std::mutex> lg(_main_mutex);
         _wait_event = nullptr;
     }
-    this->reset_thread_safe();
+    reset_thread_safe();
     baselog::trace("[ns] send_request all done");
     return true;
 }
@@ -395,8 +398,8 @@ void NetChannel::send_stop()
         std::lock_guard<std::mutex> lg(_main_mutex);
         _wait_event = nullptr;
     }
+    reset_thread_safe();
 
-    this->reset_thread_safe();
     baselog::trace("[ns] send_stop all done");
 }
 
@@ -427,13 +430,88 @@ void NetChannel::reset_thread_safe()
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         _is_processing = false;
+
+        if (_wait_event != nullptr) {
+            IMMEDIATE_CRASH();
+        }
+        _host_service = nullptr;
+
+        //http opts
         curl_easy_reset(this->_net_handle.Get());
         _request_headers.Close();
         _mime_part.Close();
         _http_body.clear();
         _http_cookie.clear();
+
+        _callback_switches = static_cast<std::uint32_t>(
+            NetResultType::NRT_ONCB_FINISH);
+
+        //response stuff
+        _http_response_header.clear();
+        _http_response_content.clear();
     }
 }
+
+void NetChannel::feed_http_response_header(const char* buf, std::size_t len)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    this->_http_response_header.append(buf, len);
+}
+
+void NetChannel::feed_http_response_content(const char* buf, std::size_t len)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    this->_http_response_content.append(buf, len);
+}
+
+const char* NetChannel::get_http_response_header(std::size_t& len)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    len = _http_response_header.size();
+    return _http_response_header.c_str();
+}
+
+bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
+    std::int64_t dlnow, std::int64_t ultotal, std::int64_t ulnow)
+{
+    if (dltotal == 0 && dlnow == 0 && ultotal == 0 && ulnow == 0) {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        if (dltotal != _http_response_progress.download_total_size) {
+            _http_content_length = dltotal;
+        }
+
+        if (dltotal != _http_response_progress.download_total_size ||
+            dlnow != _http_response_progress.download_transfered_size ||
+            ultotal != _http_response_progress.upload_total_size ||
+            ulnow != _http_response_progress.upload_transfered_size) {
+            _http_response_progress.download_total_size = dltotal;
+            _http_response_progress.download_transfered_size = dlnow;
+            _http_response_progress.upload_total_size = ultotal;
+            _http_response_progress.upload_transfered_size = ulnow;
+            _http_response_progress.current_time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+            _http_response_progress.download_speed = (static_cast<std::double_t>(
+                _http_response_progress.download_transfered_size) * 1000.0 /
+                (_http_response_progress.current_time - _http_response_progress.startup_time));
+            _http_response_progress.upload_speed = (static_cast<std::double_t>(
+                _http_response_progress.upload_transfered_size) * 1000.0 /
+                (_http_response_progress.current_time - _http_response_progress.startup_time));
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void NetChannel::get_http_response_progress(NetResultProgress& np)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    np = _http_response_progress;
+}
+
 
 bool NetChannel::is_running()
 {

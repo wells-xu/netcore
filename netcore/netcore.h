@@ -78,8 +78,8 @@ enum class NetResultCode {
 };
 
 struct NetResultHeader {
-    const char* content = nullptr;
-    std::int64_t content_len = 0;
+    const char* data = nullptr;
+    std::int64_t data_len = 0;
 };
 
 struct NetResultProgress {
@@ -94,19 +94,20 @@ struct NetResultProgress {
 };
 
 struct NetResultWrite {
-    const char* content = nullptr;
-    std::int64_t content_len = 0;
+    const char* data = nullptr;
+    std::int64_t data_len = 0;
 };
 
 struct NetResultFinish {
-    NetResultCode result_code{ NetResultCode::CURLE_OK };
-    int http_status_code = 0;
-    const char* http_content = nullptr;
-    std::int64_t http_content_len = 0;
+    NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
+    const char* data = nullptr;
+    std::int64_t data_len = 0;
+    std::int64_t http_content_length = 0;
+    std::int64_t http_response_code = 0;
     const char* http_header = nullptr;
     std::int64_t http_header_len = 0;
-    std::int64_t whole_time_ms = 0;
-    std::uint32_t average_speed = 0;
+    std::int64_t total_time_ms = 0;
+    std::double_t average_speed = 0;
     double nslookupSeconds = 0.0;
     double connectSeconds = 0.0;
     double pretransferSeconds = 0.0;

@@ -18,10 +18,11 @@ void on_call(netcore::NetResultType type, void* data, void* context)
     auto header = reinterpret_cast<netcore::NetResultHeader*>(data);
     auto progress = reinterpret_cast<netcore::NetResultProgress*>(data);
     auto finish = reinterpret_cast<netcore::NetResultFinish*>(data);
+    auto response = reinterpret_cast<netcore::NetResultWrite*>(data);
 
     switch (type) {
     case netcore::NetResultType::NRT_ONCB_HEADER:
-        baselog::info("[main] new header: {}", std::string(header->content, header->content_len));
+        baselog::info("[main] new header: {}", std::string(header->data, header->data_len));
         break;
     case netcore::NetResultType::NRT_ONCB_PROGRESS:
         baselog::info("[main] new progress: download= {}/{}@{:.2f} upload: {}/{}@{:.2f}",
@@ -31,6 +32,9 @@ void on_call(netcore::NetResultType type, void* data, void* context)
             progress->upload_transfered_size,
             progress->upload_total_size,
             progress->upload_speed);
+        break;
+    case netcore::NetResultType::NRT_ONCB_WRITE:
+        baselog::info("[main] new response data: len= {}", response->data_len);
         break;
     case netcore::NetResultType::NRT_ONCB_FINISH:
         baselog::info("[main] session finished: error= {}", (int)finish->result_code);
@@ -93,12 +97,12 @@ int _tmain(int argc, _TCHAR* argv[])
     //chan->send_stop();
 
     //chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
-    chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
-    chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
+    //chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
+    //chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
     //chans.push_back(chan);
     baselog::info("send request start again...");
-    //auto ret = chan->send_request("https://google.com", std::bind(
-       auto ret = chan->post_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
+    auto ret = chan->send_request("https://google.com", std::bind(
+       //auto ret = chan->post_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
         on_call, std::placeholders::_1, std::placeholders::_2,
         std::placeholders::_3), (void*)0x123456);
     baselog::info("send request end");

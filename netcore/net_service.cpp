@@ -160,7 +160,21 @@ void NetService::do_finish_channel()
         if (ptr_pri->chan == nullptr) {
             IMMEDIATE_CRASH();
         }
-        NetResultCode nrc = static_cast<NetResultCode>(CURLE_QUOTE_ERROR);
+
+        {
+            //collect result code
+            NetResultCode nrc = NetResultCode::CURLE_UNKOWN_ERROR;
+            if (base::is_valid_enum<NetResultCode>(msg->data.result)) {
+                nrc = static_cast<NetResultCode>(msg->data.result);
+            }
+            ptr_pri->chan->feed_http_result_code(nrc);
+            //http response code
+            int response_code = 0;
+            curl_easy_getinfo(ptr_pri->chan->get_handle(), CURLINFO_RESPONSE_CODE, &response_code);
+            ptr_pri->chan->feed_http_response_code(response_code);
+            //finish timestamp
+            ptr_pri->chan->feed_http_finish_time_ms();
+        }
         
         if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_FINISH)) {
             auto ret = curl_multi_remove_handle(_net_handle.Get(), ptr_pri->chan->get_handle());
@@ -257,8 +271,8 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
         if (task.pri->cb) {
             if (task.delivered_type == NetResultType::NRT_ONCB_HEADER) {
                 NetResultHeader nrh;
-                nrh.content = task.data->c_str();
-                nrh.content_len = task.data->size();
+                nrh.data = task.data->c_str();
+                nrh.data_len = task.data->size();
 
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrh), task.pri->param);
@@ -274,8 +288,8 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                     reinterpret_cast<void*>(&nrp), task.pri->param);
             } else if (task.delivered_type == NetResultType::NRT_ONCB_WRITE) {
                 NetResultWrite nrw;
-                nrw.content = task.data->c_str();
-                nrw.content_len = task.data->size();
+                nrw.data = task.data->c_str();
+                nrw.data_len = task.data->size();
 
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrw), task.pri->param);
@@ -285,6 +299,13 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                 }
             } else if (task.delivered_type == NetResultType::NRT_ONCB_FINISH) {
                 NetResultFinish nrf;
+                task.pri->chan->get_http_response_finish(nrf);
+                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_NAMELOOKUP_TIME, &nrf.nslookupSeconds);
+                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_CONNECT_TIME, &nrf.connectSeconds);
+                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_PRETRANSFER_TIME, &nrf.pretransferSeconds);
+                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_STARTTRANSFER_TIME, &nrf.startTransferSeconds);
+                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_APPCONNECT_TIME, &nrf.handshakeSeconds);
+
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrf), task.pri->param);
 
@@ -524,7 +545,6 @@ size_t NetService::on_callback_curl_write(
     }
     //curl_off_t  content_len = 0;
     //auto ret = curl_easy_getinfo(chan->chan->get_handle(), CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_len);
-    ptr_pri->chan->feed_http_response_content(buffer, (size * nmemb));
     if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_WRITE)) {
         auto buf = ptr_pri->chan->host_service()->borrow_wrote_buffer();
         if (buf == nullptr) {
@@ -533,6 +553,8 @@ size_t NetService::on_callback_curl_write(
         buf->assign(buffer, size * nmemb);
         ptr_pri->chan->host_service()->add_user_callback(
             UserCallbackTask{ buf, NetResultType::NRT_ONCB_WRITE, ptr_pri });
+    } else {
+        ptr_pri->chan->feed_http_response_content(buffer, (size * nmemb));
     }
 
     baselog::trace("[ns] on_callback_curl_write received size= {}", size * nmemb);

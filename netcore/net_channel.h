@@ -126,11 +126,19 @@ private:
 
     //https stuff
     void feed_http_response_header(const char *buf, std::size_t len);
-    void feed_http_response_content(const char *buf, std::size_t len);
     const char* get_http_response_header(std::size_t& len);
+    void feed_http_response_content(const char *buf, std::size_t len);
+    const char* http_response_content(std::size_t& len);
     bool feed_http_response_progress(std::int64_t dltotal,
         std::int64_t dlnow, std::int64_t ultotal, std::int64_t ulnow);
     void get_http_response_progress(NetResultProgress &np);
+    void get_http_response_finish(NetResultFinish &nrf);
+    void feed_http_response_code(int code);
+    std::int64_t http_response_code();
+    void feed_http_result_code(NetResultCode code);
+    NetResultCode http_result_code();
+    void feed_http_finish_time_ms();
+    std::int64_t http_finish_time_ms();
 
     bool is_running();
 
@@ -160,11 +168,14 @@ private:
 
     //callback
     std::uint32_t _callback_switches
-        { static_cast<std::uint32_t>(NetResultType::NRT_ONCB_FINISH)};
+        { static_cast<std::uint32_t>(NetResultType::NRT_ONCB_FINISH) };
 
     //http transfering data storage
     std::int64_t _http_content_length = -1;
-    std::int64_t _http_status_code = 0;
+    std::int64_t _http_response_code = 0;
+    NetResultCode _http_result_code { NetResultCode::CURLE_UNKOWN_ERROR };
+    std::int64_t _finish_time_ms = 0;
+
     static const int kMaxHttpResponseBufSize = 1024 * 1024 * 8;
     std::string _http_response_header;
     std::string _http_response_content;

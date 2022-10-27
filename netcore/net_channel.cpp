@@ -447,21 +447,24 @@ void NetChannel::reset_thread_safe()
             NetResultType::NRT_ONCB_FINISH);
 
         //response stuff
+        _http_content_length = -1;
+        _http_response_code = 0;
+        _http_result_code = NetResultCode::CURLE_UNKOWN_ERROR;
         _http_response_header.clear();
         _http_response_content.clear();
+        _http_response_progress = NetResultProgress();
+        _http_response_finish = NetResultFinish();
     }
 }
 
 void NetChannel::feed_http_response_header(const char* buf, std::size_t len)
 {
     std::lock_guard<std::mutex> lg(_main_mutex);
-    this->_http_response_header.append(buf, len);
-}
+    if ((_http_response_header.size() + len) > kMaxHttpResponseBufSize) {
+        return;
+    }
 
-void NetChannel::feed_http_response_content(const char* buf, std::size_t len)
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    this->_http_response_content.append(buf, len);
+    this->_http_response_header.append(buf, len);
 }
 
 const char* NetChannel::get_http_response_header(std::size_t& len)
@@ -469,6 +472,22 @@ const char* NetChannel::get_http_response_header(std::size_t& len)
     std::lock_guard<std::mutex> lg(_main_mutex);
     len = _http_response_header.size();
     return _http_response_header.c_str();
+}
+
+void NetChannel::feed_http_response_content(const char* buf, std::size_t len)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    if ((_http_response_content.size() + len) > kMaxHttpResponseBufSize) {
+        return;
+    }
+    this->_http_response_content.append(buf, len);
+}
+
+const char* NetChannel::http_response_content(std::size_t& len)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    len = _http_response_content.size();
+    return _http_response_content.c_str();
 }
 
 bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
@@ -480,7 +499,7 @@ bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
 
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
-        if (dltotal != _http_response_progress.download_total_size) {
+        if (dltotal > 0 && dltotal != _http_content_length) {
             _http_content_length = dltotal;
         }
 
@@ -512,6 +531,56 @@ void NetChannel::get_http_response_progress(NetResultProgress& np)
     np = _http_response_progress;
 }
 
+void NetChannel::get_http_response_finish(NetResultFinish& nrf)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    nrf.data = this->_http_response_content.c_str();
+    nrf.data_len = this->_http_response_content.size();
+    nrf.average_speed = this->_http_response_progress.download_speed;
+    nrf.http_content_length = this->_http_content_length;
+    nrf.http_header = this->_http_response_header.c_str();
+    nrf.http_header_len = this->_http_response_header.size();
+    nrf.http_response_code = this->_http_response_code;
+    nrf.result_code = this->_http_result_code;
+    nrf.total_time_ms = this->_finish_time_ms - this->_http_response_progress.startup_time;
+}
+
+void NetChannel::feed_http_response_code(int code)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    this->_http_response_code = code;
+}
+
+std::int64_t NetChannel::http_response_code()
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    return this->_http_response_code;
+}
+
+void NetChannel::feed_http_result_code(NetResultCode code)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    this->_http_result_code = code;
+}
+
+NetResultCode NetChannel::http_result_code()
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    return this->_http_result_code;
+}
+
+void NetChannel::feed_http_finish_time_ms()
+{
+    auto time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    this->_finish_time_ms = time;
+}
+
+std::int64_t NetChannel::http_finish_time_ms()
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    return this->_finish_time_ms;
+}
 
 bool NetChannel::is_running()
 {

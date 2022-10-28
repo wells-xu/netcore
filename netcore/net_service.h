@@ -149,8 +149,8 @@ private:
     std::mutex _main_mutex;
     std::deque<TaskInfo> _pending_tasks;
 
-    base::DistribPoolNotThreadSafe<std::string> _short_buffer_pool;
-    base::DistribPoolNotThreadSafe<std::string> _wrote_buffer_pool;
+    base::DistribPoolThreadSafe<std::string> _short_buffer_pool;
+    base::DistribPoolThreadSafe<std::string> _wrote_buffer_pool;
     std::mutex _user_mutex;
     std::condition_variable _user_loop_event;
     std::deque<UserCallbackTask> _pending_user_callbacks;

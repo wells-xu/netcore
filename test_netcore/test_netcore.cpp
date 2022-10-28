@@ -13,7 +13,7 @@
 
 void on_call(netcore::NetResultType type, void* data, void* context)
 {
-    baselog::info("[main] user on_called successed: type= {}, data= {}, context= {}",
+    baselog::info("[user_call] user on_called successed: type= {}, data= {}, context= {}",
         (int)type, data, context);
     auto header = reinterpret_cast<netcore::NetResultHeader*>(data);
     auto progress = reinterpret_cast<netcore::NetResultProgress*>(data);
@@ -22,10 +22,10 @@ void on_call(netcore::NetResultType type, void* data, void* context)
 
     switch (type) {
     case netcore::NetResultType::NRT_ONCB_HEADER:
-        baselog::info("[main] new header: {}", std::string(header->data, header->data_len));
+        baselog::info("[user_call] new header: {}", std::string(header->data, (std::size_t)header->data_len));
         break;
     case netcore::NetResultType::NRT_ONCB_PROGRESS:
-        baselog::info("[main] new progress: download= {}/{}@{:.2f} upload: {}/{}@{:.2f}",
+        baselog::info("[user_call] new progress: download= {}/{}@{:.2f} upload: {}/{}@{:.2f}",
             progress->download_transfered_size,
             progress->download_total_size,
             progress->download_speed,
@@ -34,10 +34,27 @@ void on_call(netcore::NetResultType type, void* data, void* context)
             progress->upload_speed);
         break;
     case netcore::NetResultType::NRT_ONCB_WRITE:
-        baselog::info("[main] new response data: len= {}", response->data_len);
+        baselog::info("[user_call] new response data: len= {}", response->data_len);
         break;
     case netcore::NetResultType::NRT_ONCB_FINISH:
-        baselog::info("[main] session finished: error= {}", (int)finish->result_code);
+        baselog::info("[user_call] http finished message: ");
+        baselog::info("[user_call] result_code= {}", (int)finish->result_code);
+        baselog::info("[user_call] response_code= {}", finish->http_response_code);
+        baselog::info("[user_call] content_type= {}", finish->http_content_type);
+        baselog::info("[user_call] content_length= {}", finish->content_length_download);
+        baselog::info("[user_call] header_length= {}", finish->http_header_len);
+        baselog::info("[user_call] data_length= {}", finish->data_len);
+        baselog::info("[user_call] app_average_spped= {}", finish->app_average_speed);
+        baselog::info("[user_call] download_spped= {}", finish->download_speed_bytes_persecond);
+        baselog::info("[user_call] client ip string= {}", finish->primary_ip_string);
+        baselog::info("[user_call] namelookup time = {} ms", finish->namelookup_time_ms);
+        baselog::info("[user_call] connected time = {} ms", finish->connected_time_ms);
+        baselog::info("[user_call] appconnect time = {} ms", finish->app_connected_time_ms);
+        baselog::info("[user_call] pretransfer time = {} ms", finish->pretransfer_time_ms);
+        baselog::info("[user_call] starttransfer time = {} ms", finish->starttransfer_time_ms);
+        baselog::info("[user_call] total time= {} ms", finish->total_time_ms);
+        baselog::info("[user_call] redirect_count= {}", finish->redirect_count);
+        baselog::info("[user_call] redirect_time= {} ms", finish->redirect_time_ms);
         break;
     default:
         break;
@@ -65,8 +82,8 @@ void thread_request(netcore::INetChannel *chan)
         //std::this_thread::sleep_for(std::chrono::milliseconds(1000 * 10));
 
         baselog::info("post request start...");
-        auto ret = chan->post_request("https://example.com", std::bind(
-            //auto ret = chan->send_request("https://macx.net", std::bind(
+        //auto ret = chan->post_request("https://example.com", std::bind(
+            auto ret = chan->send_request("https://macx.net", std::bind(
             on_call, std::placeholders::_1, std::placeholders::_2,
             std::placeholders::_3), (void*)chan);
         baselog::info("post request end");
@@ -80,7 +97,8 @@ int _tmain(int argc, _TCHAR* argv[])
         baselog::error("baselog init failed");
         return 1;
     }
-    
+    auto is_r = baselog::set_logger_level(baselog::log_level::info);
+
     if (!NetcoreWrapper::Instance().Initialize()) {
         baselog::error("load netcore failed");
         return 1;
@@ -89,28 +107,32 @@ int _tmain(int argc, _TCHAR* argv[])
 
     std::vector<netcore::INetChannel*> chans;
     auto chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+    chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_HEADER);
     chans.push_back(chan);
-    //std::thread work_thread(thread_request, chan);
+    std::thread work_thread(thread_request, chan);
     //g_is_stop.store(true);
-    //std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
-    //chan->send_stop();
 
-    //chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
-    //chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
-    //chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
+    chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+    chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
+    chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
     //chans.push_back(chan);
     baselog::info("send request start again...");
-    auto ret = chan->send_request("https://google.com", std::bind(
-       //auto ret = chan->post_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
+    //auto ret = chan->send_request("https://youtube.com", std::bind(
+       auto ret = chan->post_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
+       //auto ret = chan->post_request("https://macx.net", std::bind(
         on_call, std::placeholders::_1, std::placeholders::_2,
         std::placeholders::_3), (void*)0x123456);
     baselog::info("send request end");
-    //work_thread.join();
+    work_thread.join();
     baselog::info("remove channel...");
 
-    char x = 0;
-    std::cin >> x;
+    std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
+    chan->send_stop();
+
+    //char x = 0;
+    //std::cout << "net requests all done" << std::endl;
+    //std::cin >> x;
     for (auto i : chans) {
         NetcoreWrapper::Instance().NetServiceInstance()->remove_channel(i);
     }

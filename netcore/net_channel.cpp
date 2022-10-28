@@ -447,9 +447,6 @@ void NetChannel::reset_thread_safe()
             NetResultType::NRT_ONCB_FINISH);
 
         //response stuff
-        _http_content_length = -1;
-        _http_response_code = 0;
-        _http_result_code = NetResultCode::CURLE_UNKOWN_ERROR;
         _http_response_header.clear();
         _http_response_content.clear();
         _http_response_progress = NetResultProgress();
@@ -467,13 +464,6 @@ void NetChannel::feed_http_response_header(const char* buf, std::size_t len)
     this->_http_response_header.append(buf, len);
 }
 
-const char* NetChannel::get_http_response_header(std::size_t& len)
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    len = _http_response_header.size();
-    return _http_response_header.c_str();
-}
-
 void NetChannel::feed_http_response_content(const char* buf, std::size_t len)
 {
     std::lock_guard<std::mutex> lg(_main_mutex);
@@ -481,13 +471,6 @@ void NetChannel::feed_http_response_content(const char* buf, std::size_t len)
         return;
     }
     this->_http_response_content.append(buf, len);
-}
-
-const char* NetChannel::http_response_content(std::size_t& len)
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    len = _http_response_content.size();
-    return _http_response_content.c_str();
 }
 
 bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
@@ -499,10 +482,6 @@ bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
 
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
-        if (dltotal > 0 && dltotal != _http_content_length) {
-            _http_content_length = dltotal;
-        }
-
         if (dltotal != _http_response_progress.download_total_size ||
             dlnow != _http_response_progress.download_transfered_size ||
             ultotal != _http_response_progress.upload_total_size ||
@@ -533,40 +512,118 @@ void NetChannel::get_http_response_progress(NetResultProgress& np)
 
 void NetChannel::get_http_response_finish(NetResultFinish& nrf)
 {
+    //get metrics from libcurl
+    /*
+    Times
+    An overview of the six time values available from curl_easy_getinfo()
+
+    curl_easy_perform()
+    |
+    |--NAMELOOKUP
+    |--|--CONNECT
+    |--|--|--APPCONNECT
+    |--|--|--|--PRETRANSFER
+    |--|--|--|--|--STARTTRANSFER
+    |--|--|--|--|--|--TOTAL
+    |--|--|--|--|--|--REDIRECT
+    NAMELOOKUP
+
+    CURLINFO_NAMELOOKUP_TIME and CURLINFO_NAMELOOKUP_TIME_T. The time it took from the start until the name resolving was completed.
+
+    CONNECT
+
+    CURLINFO_CONNECT_TIME and CURLINFO_CONNECT_TIME_T. The time it took from the start until the connect to the remote host (or proxy) was completed.
+
+    APPCONNECT
+
+    CURLINFO_APPCONNECT_TIME and CURLINFO_APPCONNECT_TIME_T. The time it took from the start until the SSL connect/handshake with the remote host was completed. (Added in 7.19.0) The latter is the integer version (measuring microseconds). (Added in 7.60.0)
+
+    PRETRANSFER
+
+    CURLINFO_PRETRANSFER_TIME and CURLINFO_PRETRANSFER_TIME_T. The time it took from the start until the file transfer is just about to begin. This includes all pre-transfer commands and negotiations that are specific to the particular protocol(s) involved.
+
+    STARTTRANSFER
+
+    CURLINFO_STARTTRANSFER_TIME and CURLINFO_STARTTRANSFER_TIME_T. The time it took from the start until the first byte is received by libcurl.
+
+    TOTAL
+
+    CURLINFO_TOTAL_TIME and CURLINFO_TOTAL_TIME_T. Total time of the previous request.
+
+    REDIRECT
+
+    CURLINFO_REDIRECT_TIME and CURLINFO_REDIRECT_TIME_T. The time it took for all redirection steps include name lookup, connect, pretransfer and transfer before final transaction was started. So, this is zero if no redirection took place.
+    */
+
+    //http response code
+    auto ret = curl_easy_getinfo(get_handle(), CURLINFO_RESPONSE_CODE, &nrf.http_response_code);
+    //http version
+    curl_easy_getinfo(get_handle(), CURLINFO_HTTP_VERSION, &nrf.http_version);
+    //total time
+    curl_easy_getinfo(get_handle(), CURLINFO_TOTAL_TIME_T, &nrf.total_time_ms);
+    nrf.total_time_ms /= 1000;
+    //namelookup time
+    curl_easy_getinfo(get_handle(), CURLINFO_NAMELOOKUP_TIME_T, &nrf.namelookup_time_ms);
+    nrf.namelookup_time_ms /= 1000;
+    //connected time
+    curl_easy_getinfo(get_handle(), CURLINFO_CONNECT_TIME_T, &nrf.connected_time_ms);
+    nrf.connected_time_ms /= 1000;
+    // app connected time
+    curl_easy_getinfo(get_handle(), CURLINFO_APPCONNECT_TIME_T, &nrf.app_connected_time_ms);
+    nrf.app_connected_time_ms /= 1000;
+    // pretransfer time
+    curl_easy_getinfo(get_handle(), CURLINFO_PRETRANSFER_TIME_T, &nrf.pretransfer_time_ms);
+    nrf.pretransfer_time_ms /= 1000;
+    // start transfer time 
+    curl_easy_getinfo(get_handle(), CURLINFO_STARTTRANSFER_TIME_T, &nrf.starttransfer_time_ms);
+    nrf.starttransfer_time_ms /= 1000;
+    // redirect time
+    curl_easy_getinfo(get_handle(), CURLINFO_REDIRECT_TIME_T, &nrf.redirect_time_ms);
+    nrf.redirect_time_ms /= 1000;
+    // redirect count
+    curl_easy_getinfo(get_handle(), CURLINFO_REDIRECT_COUNT, &nrf.redirect_count);
+    // uploaded size
+    curl_easy_getinfo(get_handle(), CURLINFO_SIZE_UPLOAD_T, &nrf.uploaded_size_bytes);
+    // downloaded size
+    curl_easy_getinfo(get_handle(), CURLINFO_SIZE_DOWNLOAD_T, &nrf.playload_size_bytes);
+    // download speed
+    curl_easy_getinfo(get_handle(), CURLINFO_SPEED_DOWNLOAD_T, &nrf.download_speed_bytes_persecond);
+    // upload speed
+    curl_easy_getinfo(get_handle(), CURLINFO_SPEED_UPLOAD_T, &nrf.upload_speed_bytes_persecond);
+    //content length upload
+    curl_easy_getinfo(get_handle(), CURLINFO_CONTENT_LENGTH_UPLOAD_T, &nrf.content_length_upload);
+    //content length download (from Content-Length: )
+    curl_easy_getinfo(get_handle(), CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &nrf.content_length_download);
+    //content type
+    curl_easy_getinfo(get_handle(), CURLINFO_CONTENT_TYPE, &nrf.http_content_type);
+    //client ip && port string
+    curl_easy_getinfo(get_handle(), CURLINFO_PRIMARY_IP, &nrf.primary_ip_string);
+    curl_easy_getinfo(get_handle(), CURLINFO_PRIMARY_PORT, &nrf.primary_port);
+    //local ip && port string
+    curl_easy_getinfo(get_handle(), CURLINFO_LOCAL_IP, &nrf.local_ip_string);
+    curl_easy_getinfo(get_handle(), CURLINFO_LOCAL_PORT, &nrf.local_port);
+    //scheme type
+    curl_easy_getinfo(get_handle(), CURLINFO_SCHEME, &nrf.scheme_type);
+    //referrer header
+    ret = curl_easy_getinfo(get_handle(), CURLINFO_REFERER, &nrf.referrer_header);
+    //last effective url && method
+    curl_easy_getinfo(get_handle(), CURLINFO_EFFECTIVE_URL, &nrf.last_effective_url);
+    curl_easy_getinfo(get_handle(), CURLINFO_EFFECTIVE_METHOD, &nrf.last_effective_method);
+    
     std::lock_guard<std::mutex> lg(_main_mutex);
     nrf.data = this->_http_response_content.c_str();
     nrf.data_len = this->_http_response_content.size();
-    nrf.average_speed = this->_http_response_progress.download_speed;
-    nrf.http_content_length = this->_http_content_length;
+    nrf.app_average_speed = this->_http_response_progress.download_speed;
     nrf.http_header = this->_http_response_header.c_str();
     nrf.http_header_len = this->_http_response_header.size();
-    nrf.http_response_code = this->_http_response_code;
-    nrf.result_code = this->_http_result_code;
-    nrf.total_time_ms = this->_finish_time_ms - this->_http_response_progress.startup_time;
-}
-
-void NetChannel::feed_http_response_code(int code)
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    this->_http_response_code = code;
-}
-
-std::int64_t NetChannel::http_response_code()
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    return this->_http_response_code;
+    nrf.result_code = this->_http_response_finish.result_code;
+    _http_response_finish = nrf;
 }
 
 void NetChannel::feed_http_result_code(NetResultCode code)
 {
     std::lock_guard<std::mutex> lg(_main_mutex);
-    this->_http_result_code = code;
-}
-
-NetResultCode NetChannel::http_result_code()
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    return this->_http_result_code;
+    this->_http_response_finish.result_code = code;
 }
 
 void NetChannel::feed_http_finish_time_ms()
@@ -574,12 +631,6 @@ void NetChannel::feed_http_finish_time_ms()
     auto time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
     std::lock_guard<std::mutex> lg(_main_mutex);
     this->_finish_time_ms = time;
-}
-
-std::int64_t NetChannel::http_finish_time_ms()
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    return this->_finish_time_ms;
 }
 
 bool NetChannel::is_running()

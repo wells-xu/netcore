@@ -168,10 +168,6 @@ void NetService::do_finish_channel()
                 nrc = static_cast<NetResultCode>(msg->data.result);
             }
             ptr_pri->chan->feed_http_result_code(nrc);
-            //http response code
-            int response_code = 0;
-            curl_easy_getinfo(ptr_pri->chan->get_handle(), CURLINFO_RESPONSE_CODE, &response_code);
-            ptr_pri->chan->feed_http_response_code(response_code);
             //finish timestamp
             ptr_pri->chan->feed_http_finish_time_ms();
         }
@@ -300,11 +296,7 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
             } else if (task.delivered_type == NetResultType::NRT_ONCB_FINISH) {
                 NetResultFinish nrf;
                 task.pri->chan->get_http_response_finish(nrf);
-                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_NAMELOOKUP_TIME, &nrf.nslookupSeconds);
-                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_CONNECT_TIME, &nrf.connectSeconds);
-                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_PRETRANSFER_TIME, &nrf.pretransferSeconds);
-                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_STARTTRANSFER_TIME, &nrf.startTransferSeconds);
-                curl_easy_getinfo(task.pri->chan->get_handle(), CURLINFO_APPCONNECT_TIME, &nrf.handshakeSeconds);
+
 
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrf), task.pri->param);
@@ -543,8 +535,6 @@ size_t NetService::on_callback_curl_write(
     if (ptr_pri->chan == nullptr) {
         IMMEDIATE_CRASH();
     }
-    //curl_off_t  content_len = 0;
-    //auto ret = curl_easy_getinfo(chan->chan->get_handle(), CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_len);
     if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_WRITE)) {
         auto buf = ptr_pri->chan->host_service()->borrow_wrote_buffer();
         if (buf == nullptr) {

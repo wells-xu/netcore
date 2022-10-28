@@ -23,6 +23,8 @@ DLL_NETCORE_API bool         net_service_shutdown(INetService*);
 
 static const int TIMEOUT_MS_INFINITE = 0;
 static const int TIMEOUT_MS_DEFAULT = 20000;
+static const std::int64_t kContentLengthUnkown = -1;
+
 //codes from: https://curl.se/libcurl/c/libcurl-errors.html
 enum class NetResultCode {
     //All fine. Proceed as usual.
@@ -99,20 +101,83 @@ struct NetResultWrite {
 };
 
 struct NetResultFinish {
+    //result code
     NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
+    //transfered body data
     const char* data = nullptr;
     std::int64_t data_len = 0;
-    std::int64_t http_content_length = 0;
-    std::int64_t http_response_code = 0;
+    //header data
     const char* http_header = nullptr;
     std::int64_t http_header_len = 0;
+    //http metrics
+    std::int64_t http_response_code = 0;
+    //http version: CURL_HTTP_VERSION_1_1 CURL_HTTP_VERSION_2_0
+    long http_version = 0; 
+    // The total time in microseconds for the previous transfer, including name resolving, TCP connect etc. The curl_off_t represents the time in microseconds.
     std::int64_t total_time_ms = 0;
-    std::double_t average_speed = 0;
-    double nslookupSeconds = 0.0;
-    double connectSeconds = 0.0;
-    double pretransferSeconds = 0.0;
-    double startTransferSeconds = 0.0;
-    double handshakeSeconds = 0.0;
+    // The total time in microseconds  from the start until the name resolving was completed.
+    std::int64_t namelookup_time_ms = 0;
+    // The total time in microseconds from the start until the connection to the remote host(or proxy) was completed.
+    std::int64_t connected_time_ms = 0;
+    // The time, in microseconds, it took from the start until the SSL/SSH connect/handshake to the remote host was completed. 
+    std::int64_t app_connected_time_ms = 0;
+    // The time, in microseconds, it took from the start until the file transfer is just about to begin.
+    std::int64_t pretransfer_time_ms = 0;
+    // The time, in microseconds, it took from the start until the first byte is received by libcurl.
+    std::int64_t starttransfer_time_ms = 0;
+    // The total time, in microseconds, it took for all redirection steps include name lookup, connect, pretransfer and transfer before final transaction was started.
+    std::int64_t redirect_time_ms = 0;
+    // The total number of redirections that were actually followed.
+    long         redirect_count = 0;
+    // The average download speed that curl measured for the complete download. Measured in bytes/second.
+    std::int64_t download_speed_bytes_persecond = 0;
+    // The average upload speed that curl measured for the complete upload. Measured in bytes/second.
+    std::int64_t upload_speed_bytes_persecond = 0;
+     // The total amount of bytes that were uploaded.
+    std::int64_t uploaded_size_bytes = 0;
+    // The total amount of bytes that were downloaded. All meta and header data are excluded and will not be counted in this number. 
+    std::int64_t playload_size_bytes = 0;
+    // The specified size of the upload. Stores -1 if the size is not known.
+    std::int64_t content_length_upload = kContentLengthUnkown;
+    // The content-length of the download. This is the value read from the Content-Length: field. Stores -1 if the size is not known.
+    std::int64_t content_length_download = kContentLengthUnkown;
+    // The content-type of the downloaded object. This is the value read from the Content-Type: field. If you get NULL, it means that the server did not send a valid Content-Type header or that the protocol used does not support this.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* http_content_type = nullptr;
+    // The pointer to a null - terminated string holding the IP address of the most recent connection done with this curl handle.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* primary_ip_string = nullptr;
+    // The destination port of the most recent connection done with this curl handle.
+    // This is the destination port of the actual TCP or UDP connection libcurl used. If a proxy was used for the most recent transfer, this is the port number of the proxy, if no proxy was used it is the port number of the most recently accessed URL.
+    long primary_port = 0;
+    // The pointer to a null - terminated string holding the IP address of the local end of most recent connection done with this curl handle.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* local_ip_string = nullptr;
+    // The local port number of the most recent connection done with this curl handle.
+    long local_port = 0;
+    // The pointer to a null-terminated string holding the URL scheme used for the most recent connection done with this CURL handle.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* scheme_type = nullptr;
+    // The pointer to a null-terminated string holding the referrer header.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* referrer_header = nullptr;
+    // The pointer to get the last used effective URL.
+    // In cases when you have asked libcurl to follow redirects, it may not be the same value you set with CURLOPT_URL.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* last_effective_url = nullptr;
+    // The pointer to a char pointer and get the last used effective HTTP method.
+    // In cases when you have asked libcurl to follow redirects, the method may not be the same method the first request would use.
+    // Pointing to private memory you MUST NOT free it.
+    // You MUST copy && store it youself if you wanted to use it after callback finished.
+    const char* last_effective_method = nullptr;
+    // The average speed that from oncallbacks progress with app itself 
+    std::double_t app_average_speed = 0.0;
 };
 
 enum class NetResultType {

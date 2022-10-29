@@ -71,6 +71,10 @@ enum class NetResultCode {
     CURLE_TOO_MANY_REDIRECTS = 47,
     //An option passed to libcurl is not recognized / known.Refer to the appropriate documentation.This is most likely a problem in the program that uses libcurl.The error buffer might contain more specific information about which exact option it concerns.
     CURLE_UNKNOWN_OPTION = 48,
+    //failed sending network data
+    CURLE_SEND_ERROR = 55,
+    //failure in receiving network data
+    CURLE_RECV_ERROR = 56,
     //Unrecognized transfer encoding.
     CURLE_BAD_CONTENT_ENCODING = 61,
     //Proxy handshake error.CURLINFO_PROXY_ERROR provides extra details on the specific problem.

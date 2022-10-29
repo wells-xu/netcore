@@ -29,6 +29,8 @@ REGISTER_ENUM_VALUES(netcore::NetResultCode,
     netcore::NetResultCode::CURLE_BAD_DOWNLOAD_RESUME,
     netcore::NetResultCode::CURLE_TOO_MANY_REDIRECTS,
     netcore::NetResultCode::CURLE_UNKNOWN_OPTION,
+    netcore::NetResultCode::CURLE_SEND_ERROR,
+    netcore::NetResultCode::CURLE_RECV_ERROR,
     netcore::NetResultCode::CURLE_BAD_CONTENT_ENCODING,
     netcore::NetResultCode::CURLE_PROXY,
     netcore::NetResultCode::CURLE_UNKOWN_ERROR);

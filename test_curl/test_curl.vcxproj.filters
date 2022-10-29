@@ -27,9 +27,6 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\netcore\net_core_imp.h">
-      <Filter>netcore</Filter>
-    </ClInclude>
     <ClInclude Include="..\netcore\net_channel.h">
       <Filter>netcore</Filter>
     </ClInclude>
@@ -40,9 +37,6 @@
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\netcore\net_core_imp.cpp">
-      <Filter>netcore</Filter>
     </ClCompile>
     <ClCompile Include="..\netcore\net_channel.cpp">
       <Filter>netcore</Filter>

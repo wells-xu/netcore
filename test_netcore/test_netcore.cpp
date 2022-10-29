@@ -11,6 +11,9 @@
 #include <base/log/logger.h>
 #include <base/math/rand_util.h>
 
+#define SAFE_STRING_PRINTF(p) \
+    (p == nullptr ? ("") : (p))
+
 void on_call(netcore::NetResultType type, void* data, void* context)
 {
     baselog::info("[user_call] user on_called successed: type= {}, data= {}, context= {}",
@@ -40,13 +43,13 @@ void on_call(netcore::NetResultType type, void* data, void* context)
         baselog::info("[user_call] http finished message: ");
         baselog::info("[user_call] result_code= {}", (int)finish->result_code);
         baselog::info("[user_call] response_code= {}", finish->http_response_code);
-        baselog::info("[user_call] content_type= {}", finish->http_content_type);
+        baselog::info("[user_call] content_type= {}", SAFE_STRING_PRINTF(finish->http_content_type));
         baselog::info("[user_call] content_length= {}", finish->content_length_download);
         baselog::info("[user_call] header_length= {}", finish->http_header_len);
         baselog::info("[user_call] data_length= {}", finish->data_len);
         baselog::info("[user_call] app_average_spped= {}", finish->app_average_speed);
         baselog::info("[user_call] download_spped= {}", finish->download_speed_bytes_persecond);
-        baselog::info("[user_call] client ip string= {}", finish->primary_ip_string);
+        baselog::info("[user_call] client ip string= {}", SAFE_STRING_PRINTF(finish->primary_ip_string));
         baselog::info("[user_call] namelookup time = {} ms", finish->namelookup_time_ms);
         baselog::info("[user_call] connected time = {} ms", finish->connected_time_ms);
         baselog::info("[user_call] appconnect time = {} ms", finish->app_connected_time_ms);
@@ -118,8 +121,8 @@ int _tmain(int argc, _TCHAR* argv[])
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
     //chans.push_back(chan);
     baselog::info("send request start again...");
-    //auto ret = chan->send_request("https://youtube.com", std::bind(
-       auto ret = chan->post_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
+    auto ret = chan->send_request("https://youtube.com", std::bind(
+       //auto ret = chan->send_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
        //auto ret = chan->post_request("https://macx.net", std::bind(
         on_call, std::placeholders::_1, std::placeholders::_2,
         std::placeholders::_3), (void*)0x123456);
@@ -127,8 +130,8 @@ int _tmain(int argc, _TCHAR* argv[])
     work_thread.join();
     baselog::info("remove channel...");
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
-    chan->send_stop();
+    //std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
+    //chan->send_stop();
 
     //char x = 0;
     //std::cout << "net requests all done" << std::endl;

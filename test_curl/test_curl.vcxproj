@@ -86,14 +86,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\netcore\net_channel.h" />
-    <ClInclude Include="..\netcore\net_core_imp.h" />
     <ClInclude Include="..\netcore\net_service.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\netcore\net_channel.cpp" />
-    <ClCompile Include="..\netcore\net_core_imp.cpp" />
     <ClCompile Include="..\netcore\net_service.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

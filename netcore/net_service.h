@@ -53,6 +53,7 @@ struct LibcurlPrivateInfo
 {
     std::string url;
     CallbackType cb;
+    HandleShell* env {nullptr};
     void* param {nullptr};
     NetChannel* chan {nullptr};
     int timeout_ms{ TIMEOUT_MS_DEFAULT };
@@ -62,6 +63,7 @@ struct LibcurlPrivateInfo
         cb.swap(std::move(CallbackType()));
         param = nullptr;
         chan = nullptr;
+        env = nullptr;
         timeout_ms = TIMEOUT_MS_DEFAULT;
     }
 };
@@ -78,23 +80,20 @@ public:
     virtual INetChannel* create_clone_channel(INetChannel* chan);
     virtual void         remove_channel(INetChannel* chan);
 
-    typedef std::function<bool()> NSCallBack;
+    typedef std::function<bool(HandleShell*)> NSCallBack;
     typedef struct _TaskInfo {
         NSCallBack cb;
-        //INetChannel* chan{ nullptr };
+        HandleShell* env = nullptr;
     }TaskInfo;
     void send_request(NSCallBack callback);
     void post_request(NSCallBack callback);
-    HandleShell* borrow_event_shell();
-    bool restore_event_shell(HandleShell* ptr);
 
     //callback functions
-    //bool on_chanel_send_stop(NetChannel* channel);
-    //bool on_chanel_post_stop(NetChannel* channel);
-    bool on_channel_close(NetChannel* channel);
-    bool on_channel_remove(NetChannel* channel);
+    bool on_channel_close(NetChannel* channel, HandleShell* env);
+    bool on_channel_remove(NetChannel* channel, HandleShell* env);
     bool on_channel_request(NetChannel* chan,
-        const std::string url, CallbackType cb, void* param, int timeout_ms);
+        const std::string url, CallbackType cb,
+        void* param, int timeout_ms, HandleShell *env);
 
     //libcurl callbacks
     static size_t on_callback_curl_write(
@@ -115,8 +114,6 @@ private:
     void do_pending_task(std::deque<TaskInfo> &tasks);
     void do_finish_channel();
 
-    void clean_channel(NetChannel* chan);
-
     struct UserCallbackTask {
         std::string *data {nullptr};
         NetResultType delivered_type{ NetResultType::NRT_ONCB_NONE };
@@ -126,6 +123,8 @@ private:
 
     LibcurlPrivateInfo* borrow_private_info();
     bool restore_private_info(LibcurlPrivateInfo* ptr);
+    HandleShell* borrow_event_shell();
+    bool restore_event_shell(HandleShell* ptr);
 
     std::string* borrow_short_buffer();
     bool restore_short_buffer(std::string* ptr);

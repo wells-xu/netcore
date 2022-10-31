@@ -119,7 +119,6 @@ private:
     NetService* host_service() {
         return _host_service;
     }
-    HandleShell* get_wait_event();
     bool is_callback_switches_exist(NetResultType nrt);
 
     void reset_thread_safe();
@@ -134,15 +133,8 @@ private:
     void feed_http_result_code(NetResultCode code);
     void feed_http_finish_time_ms();
 
-    bool is_running();
-
-    bool on_net_request_within_service();
-    NetChannel* on_net_response();
-
     void setup_curl_opts();
 
-    //CallbackType _callback;
-    HandleShell* _wait_event{ nullptr };
     NetService* _host_service {nullptr};
     std::mutex _main_mutex;
     bool _is_processing{false};

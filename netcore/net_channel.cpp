@@ -36,6 +36,10 @@ bool NetChannel::init(NetService *host, NetChannel* chan)
         if (_is_processing) {
             return false;
         }
+
+        if (_host_service != nullptr) {
+            return false;
+        }
     }
 
     if (chan != nullptr) {
@@ -63,15 +67,16 @@ bool NetChannel::set_header(const std::string& header)
         return false;
     }
     
-    if (is_running()) {
-        return false;
-    }
-
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return false;
+        }
+
         _request_headers.Set(
             curl_slist_append(_request_headers.Take(), header.c_str()));
     }
+
     return true;
 }
 
@@ -81,18 +86,18 @@ bool NetChannel::set_body(const std::string& body)
         return false;
     }
 
-    if (is_running()) {
-        return false;
-    }
-
-    if (this->_mime_part.IsValid()) {
-        return false;
-    }
-
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return false;
+        }
+
+        if (this->_mime_part.IsValid()) {
+            return false;
+        }
         _http_body = body;
     }
+
     return true;
 }
 
@@ -102,15 +107,16 @@ bool NetChannel::set_cookie(const std::string& cookie)
         return false;
     }
 
-    if (is_running()) {
-        return false;
-    }
-
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return false;
+        }
+
         this->_http_cookie = cookie;
     }
-    return false;
+
+    return true;
 }
 
 void NetChannel::enable_callback(NetResultType nrt)
@@ -178,40 +184,48 @@ bool NetChannel::set_mime_data(const std::string& part_name,
         return false;
     }
 
-    if (is_running()) {
-        return false;
-    }
-
     CURLcode ret = CURLE_OK;
+    CurlMimeHandle cmh;
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return false;
+        }
+
         if (!this->_http_body.empty()) {
             return false;
         }
+        cmh.Set(curl_mime_init(this->_net_handle.Get()));
+    }
 
-        if (!this->_mime_part.IsValid()) {
-            _mime_part.Set(curl_mime_init(this->_net_handle.Get()));
-            if (!_mime_part.IsValid()) {
-                IMMEDIATE_CRASH();
-            }
-        }
+    if (!cmh.IsValid()) {
+        IMMEDIATE_CRASH();
+    }
 
-        auto part = curl_mime_addpart(_mime_part.Get());
-        //curl_mime_data sets a mime part's body content from memory data.
-        //data points to the data that gets copied by this function.The storage may safely be reused after the call.
-        ret = curl_mime_data(part, part_content.c_str(), part_content.size());
+    auto part = curl_mime_addpart(cmh.Get());
+    //curl_mime_data sets a mime part's body content from memory data.
+    //data points to the data that gets copied by this function.The storage may safely be reused after the call.
+    ret = curl_mime_data(part, part_content.c_str(), part_content.size());
+    if (ret != CURLE_OK) {
+        return false;
+    }
+    if (!part_type.empty()) {
+        ret = curl_mime_type(part, part_type.c_str());
         if (ret != CURLE_OK) {
             return false;
         }
-        if (!part_type.empty()) {
-            ret = curl_mime_type(part, part_type.c_str());
-            if (ret != CURLE_OK) {
-                return false;
-            }
-        }
-        ret = curl_mime_name(part, part_name.c_str());
     }
-    return (ret == CURLE_OK);
+    ret = curl_mime_name(part, part_name.c_str());
+    if (ret != CURLE_OK) {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        _mime_part = std::move(cmh);
+    }
+
+    return true;
 }
 
 bool NetChannel::set_mime_file(
@@ -223,42 +237,50 @@ bool NetChannel::set_mime_file(
         return false;
     }
 
-    if (is_running()) {
-        return false;
-    }
-
     CURLcode ret = CURLE_OK;
+    CurlMimeHandle cmh;
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
+        if (_is_processing) {
+            return false;
+        }
+
         if (!this->_http_body.empty()) {
             return false;
         }
 
-        if (!this->_mime_part.IsValid()) {
-            _mime_part.Set(curl_mime_init(this->_net_handle.Get()));
-            if (!_mime_part.IsValid()) {
-                IMMEDIATE_CRASH();
-            }
-        }
-
-        auto part = curl_mime_addpart(_mime_part.Get());
-        ret = curl_mime_filedata(part, file_path.c_str());
-        if (ret != CURLE_OK) {
-            return false;
-        }
-        ret = curl_mime_filename(part, remote_name.c_str());
-        if (ret != CURLE_OK) {
-            return false;
-        }
-        if (!part_type.empty()) {
-            ret = curl_mime_type(part, part_type.c_str());
-            if (ret != CURLE_OK) {
-                return false;
-            }
-        }
-        ret = curl_mime_name(part, part_name.c_str());
+        cmh.Set(curl_mime_init(this->_net_handle.Get()));
     }
-    return (ret == CURLE_OK);
+
+    if (!cmh.IsValid()) {
+        IMMEDIATE_CRASH();
+    }
+    auto part = curl_mime_addpart(cmh.Get());
+    ret = curl_mime_filedata(part, file_path.c_str());
+    if (ret != CURLE_OK) {
+        return false;
+    }
+    ret = curl_mime_filename(part, remote_name.c_str());
+    if (ret != CURLE_OK) {
+        return false;
+    }
+    if (!part_type.empty()) {
+        ret = curl_mime_type(part, part_type.c_str());
+        if (ret != CURLE_OK) {
+            return false;
+        }
+    }
+    ret = curl_mime_name(part, part_name.c_str());
+    if (ret != CURLE_OK) {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        _mime_part = std::move(cmh);
+    }
+    
+    return true;
 }
 
 void NetChannel::setup_curl_opts()
@@ -313,7 +335,8 @@ bool NetChannel::post_request(
             return false;
         }
 
-        _http_response_progress.startup_time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+        _http_response_progress.startup_time =
+            base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
         _is_processing = true;
     }
 
@@ -321,7 +344,7 @@ bool NetChannel::post_request(
     
     _host_service->post_request(std::bind(
         &NetService::on_channel_request, _host_service, this,
-        url, callback, param, timeout_ms));
+        url, callback, param, timeout_ms, std::placeholders::_1));
     return true;
 }
 
@@ -337,86 +360,49 @@ bool NetChannel::send_request(
             return false;
         }
 
-        if (_wait_event != nullptr) {
-            return false;
-        }
-        _wait_event = _host_service->borrow_event_shell();
-
-        _http_response_progress.startup_time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+        _http_response_progress.startup_time =
+            base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
         _is_processing = true;
     }
 
     setup_curl_opts();
 
-    _host_service->post_request(std::bind(
+    _host_service->send_request(std::bind(
         &NetService::on_channel_request, _host_service, this,
-        url, callback, param, timeout_ms));
-
-    baselog::trace("[ns] send_request waiting...");
-    ::WaitForSingleObject(_wait_event->Get(), INFINITE);
-    baselog::trace("[ns] send_request waiting done");
-    if (!_host_service->restore_event_shell(_wait_event)) {
-        IMMEDIATE_CRASH();
-    }
-
-    {
-        std::lock_guard<std::mutex> lg(_main_mutex);
-        _wait_event = nullptr;
-    }
+        url, callback, param, timeout_ms, std::placeholders::_1));
     reset_thread_safe();
-    baselog::trace("[ns] send_request all done");
+    baselog::trace("[ns] channel send_request done");
     return true;
 }
 
 void NetChannel::send_stop()
 {
-    bool is_event_borrowed = false;
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         if (!_is_processing) {
             return;
         }
-
-        BASELOG_TRACE("send_stop wait_event= {}", (void*)_wait_event);
-        if (_wait_event == nullptr) {
-            is_event_borrowed = true;
-            _wait_event = _host_service->borrow_event_shell();
-        }
     }
 
     baselog::trace("[ns] send_stop posting...");
-    _host_service->post_request(std::bind(
-        &NetService::on_channel_close, this->_host_service, this));
+    _host_service->send_request(std::bind(
+        &NetService::on_channel_close, this->_host_service, this, std::placeholders::_1));
 
-    baselog::trace("[ns] send_stop waiting...");
-    ::WaitForSingleObject(_wait_event->Get(), INFINITE);
-    baselog::trace("[ns] send_stop waiting done");
-    if (is_event_borrowed) {
-        if (!_host_service->restore_event_shell(_wait_event)) {
-            IMMEDIATE_CRASH();
-        }
-        std::lock_guard<std::mutex> lg(_main_mutex);
-        _wait_event = nullptr;
-    }
     reset_thread_safe();
-
     baselog::trace("[ns] send_stop all done");
 }
 
 void NetChannel::post_stop()
 {
-    if (!is_running()) {
-        return;
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        if (!_is_processing) {
+            return;
+        }
     }
-
+ 
     _host_service->post_request(std::bind(
-        &NetService::on_channel_close, this->_host_service, this));
-}
-
-HandleShell* NetChannel::get_wait_event()
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    return _wait_event;
+        &NetService::on_channel_close, this->_host_service, this, std::placeholders::_1));
 }
 
 bool NetChannel::is_callback_switches_exist(NetResultType nrt)
@@ -430,12 +416,7 @@ void NetChannel::reset_thread_safe()
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         _is_processing = false;
-
-        if (_wait_event != nullptr) {
-            IMMEDIATE_CRASH();
-        }
         _host_service = nullptr;
-
         //http opts
         curl_easy_reset(this->_net_handle.Get());
         _request_headers.Close();
@@ -446,6 +427,8 @@ void NetChannel::reset_thread_safe()
         _callback_switches = static_cast<std::uint32_t>(
             NetResultType::NRT_ONCB_FINISH);
 
+        //time
+        _finish_time_ms = 0;
         //response stuff
         _http_response_header.clear();
         _http_response_content.clear();
@@ -631,22 +614,6 @@ void NetChannel::feed_http_finish_time_ms()
     auto time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
     std::lock_guard<std::mutex> lg(_main_mutex);
     this->_finish_time_ms = time;
-}
-
-bool NetChannel::is_running()
-{
-    std::lock_guard<std::mutex> lg(_main_mutex);
-    return _is_processing;
-}
-
-NetChannel* NetChannel::on_net_response()
-{
-    return this;
-}
-
-bool NetChannel::on_net_request_within_service()
-{
-    return false;
 }
 
 } //namespace netcore

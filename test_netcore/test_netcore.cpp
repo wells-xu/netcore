@@ -94,6 +94,13 @@ void thread_request(netcore::INetChannel *chan)
     }
 }
 
+class CallClass {
+public:
+    int func_foo(int a, int b, void* c) {
+        return (a + b + *(int*)c);
+    }
+};
+
 int _tmain(int argc, _TCHAR* argv[])
 {
     if (!baselog::initialize()) {
@@ -119,7 +126,7 @@ int _tmain(int argc, _TCHAR* argv[])
     chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
-    //chans.push_back(chan);
+    chans.push_back(chan);
     baselog::info("send request start again...");
     auto ret = chan->send_request("https://youtube.com", std::bind(
        //auto ret = chan->send_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(

@@ -135,7 +135,11 @@ void NetService::do_pending_task(std::deque<TaskInfo>& tasks)
 {
     while(!tasks.empty()) {
         auto &cb = tasks.front();
-        cb.cb();
+        auto ret = cb.cb(cb.env);
+        if (ret && cb.env != nullptr) {
+            baselog::info("[ns] setevent0 done ret= {}, event= {}", ret, (void*)cb.env);
+            ::SetEvent(cb.env->Get());
+        }
         tasks.pop_front();
     }
 }
@@ -184,7 +188,10 @@ void NetService::do_finish_channel()
             this->add_user_callback(UserCallbackTask
                 { nullptr, NetResultType::NRT_ONCB_FINISH, ptr_pri });
         } else {
-            this->on_channel_close(ptr_pri->chan);
+            this->on_channel_close(ptr_pri->chan, nullptr);
+            if (ptr_pri->env != nullptr) {
+                ::SetEvent(ptr_pri->env->Get());
+            }
             this->restore_private_info(ptr_pri);
         }
      } while (1);
@@ -303,7 +310,12 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrf), task.pri->param);
 
-                clean_channel(task.pri->chan);
+                if (task.pri->env != nullptr) {
+                    baselog::info("[ns] setevent done: event= {}", (void*)task.pri->env);
+                    ::SetEvent(task.pri->env->Get());
+                }
+                task.pri->chan->reset_thread_safe();
+
                 if (!restore_private_info(task.pri)) {
                     IMMEDIATE_CRASH();
                 }
@@ -377,19 +389,32 @@ void NetService::remove_channel(INetChannel* chan)
         return;
     }
 
-    this->post_request(std::bind(
-        &NetService::on_channel_remove, this, channel));
+    this->send_request(std::bind(
+        &NetService::on_channel_remove, this, channel, std::placeholders::_1));
 }
 
 void NetService::send_request(NSCallBack callback)
 {
-    post_request(callback);
-
-    auto sync_handle = _event_pool.borrow();
-    if (sync_handle == nullptr) {
-        IMMEDIATE_CRASH();
-        return;
+    {
+        std::unique_lock<std::mutex> ul(_main_mutex);
+        if (_is_stopped) {
+            return;
+        }
     }
+
+    auto sync_event = borrow_event_shell();
+
+    TaskInfo ti{ callback, sync_event };
+    {
+        std::unique_lock<std::mutex> ul(_main_mutex);
+        _pending_tasks.push_back(ti);
+    }
+    this->wake_up_event();
+
+    baselog::trace("[ns] send_request waiting: {}", (void*)sync_event);
+    ::WaitForSingleObject(sync_event->Get(), INFINITE);
+    baselog::trace("[ns] send_request wait done: {}", (void*)sync_event);
+    restore_event_shell(sync_event);
 }
 
 void NetService::post_request(NSCallBack callback)
@@ -401,7 +426,7 @@ void NetService::post_request(NSCallBack callback)
         }
     }
 
-    TaskInfo ti{ callback };
+    TaskInfo ti{ callback, nullptr };
     {
         std::unique_lock<std::mutex> ul(_main_mutex);
         _pending_tasks.push_back(ti);
@@ -484,47 +509,126 @@ bool NetService::restore_wrote_buffer(std::string* ptr)
         IMMEDIATE_CRASH();
     }
     ptr->clear();
-    return _wrote_buffer_pool.retrieve(ptr);
+    if (!_wrote_buffer_pool.retrieve(ptr)) {
+        IMMEDIATE_CRASH();
+    }
+
+    return true;
 }
 
-bool NetService::on_channel_close(NetChannel* channel)
+bool NetService::on_channel_close(NetChannel* channel, HandleShell*)
 {
     if (channel == nullptr) {
         IMMEDIATE_CRASH();
-        return false;
     }
 
     baselog::trace("[ns] on_channel_close remove channel from libcurl...");
     auto ret = curl_multi_remove_handle(_net_handle.Get(), channel->get_handle());
     if (ret != CURLM_OK) {
         IMMEDIATE_CRASH();
-        return false;
     }
 
-    clean_channel(channel);
+    channel->reset_thread_safe();
     return true;
 }
 
-void NetService::clean_channel(NetChannel* channel)
-{
-    auto event = channel->get_wait_event();
-    if (event != nullptr) {
-        ::SetEvent(event->Get());
-    } else {
-        channel->reset_thread_safe();
-    }
-}
-
-bool NetService::on_channel_remove(NetChannel* channel)
+bool NetService::on_channel_remove(NetChannel* channel, HandleShell* env)
 {
     baselog::trace("[ns] on_channel_remove chan= {}", (void*)channel);
-    this->on_channel_close(channel);
+    this->on_channel_close(channel, env);
     if (!this->_channel_pool.retrieve(channel)) {
         IMMEDIATE_CRASH();
-        return false;
     }
 
     return true;
+}
+
+bool NetService::on_channel_request(NetChannel* chan,
+    const std::string url, CallbackType cb,
+    void* param, int timeout_ms, HandleShell* env)
+{
+    if (chan == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    //create && assign private data
+    auto pri_ptr = reinterpret_cast<void*>(borrow_private_info());
+    baselog::trace("[ns] new private info created: {}", pri_ptr);
+    auto lpi = reinterpret_cast<LibcurlPrivateInfo*>(pri_ptr);
+    lpi->chan = chan;
+    lpi->cb = cb;
+    lpi->param = param;
+    lpi->url = url;
+    lpi->timeout_ms = timeout_ms;
+    lpi->env = env;
+
+    //libcurl set opts
+
+    //proxy stuff upport
+    //curl_easy_setopt(curl, CURLOPT_PROXY, @proxy_);
+    //curl_easy_setopt(curl, CURLOPT_PROXYUSERNAME, @user_name_);
+    //curl_easy_setopt(curl, CURLOPT_PROXYPASSWORD, @user_pass_);
+
+    //http/https curl
+    curl_easy_setopt(chan->get_handle(), CURLOPT_URL, url.c_str());
+
+    //enable all supported built-in compressions
+    curl_easy_setopt(chan->get_handle(), CURLOPT_ACCEPT_ENCODING, "");
+
+    //redirect setting:CURL_REDIR_POST_ALL = (CURL_REDIR_POST_301 | CURL_REDIR_POST_302 |CURL_REDIR_POST_303)
+    curl_easy_setopt(chan->get_handle(), CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
+    curl_easy_setopt(chan->get_handle(), CURLOPT_FOLLOWLOCATION, 1L);
+
+    //https/ssl/tls stuff
+    //xp support
+    //if (IsWInXP()) {
+        //curl_easy_setopt(chan->get_handle(), CURLOPT_SSLVERSION, CURL_SSLVERSION_SSLv3);
+    //}
+    //This option determines whether curl verifies the authenticity of the peer's certificate.
+    //By default, curl assumes a value of 1.
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_SSL_VERIFYPEER, 1L);
+    //This option determines whether libcurl verifies that the server cert is for the server it is known as.
+    //When the verify value is 0, the connection succeeds regardless of the names in the certificate. Use that ability with caution!
+    //The default value for this option is 2.
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_SSL_VERIFYHOST, 2);
+
+    //timeout stuff
+    //the maximum time in milliseconds that you allow the libcurl transfer operation to take.
+    //Default timeout is 0 (zero) which means it never times out during transfer.
+    curl_easy_setopt(chan->get_handle(), CURLOPT_TIMEOUT_MS, timeout_ms);
+    //Set to zero to switch to the default built-in connection timeout - 300 seconds
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 1);
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 10);
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT_MS, timeout_ms); 
+
+    //private setting
+    curl_easy_setopt(chan->get_handle(), CURLOPT_PRIVATE, pri_ptr);
+
+    //write
+    curl_easy_setopt(chan->get_handle(), CURLOPT_WRITEDATA, pri_ptr);
+    curl_easy_setopt(chan->get_handle(),
+        CURLOPT_WRITEFUNCTION, &NetService::on_callback_curl_write);
+    //progress
+    curl_easy_setopt(chan->get_handle(), CURLOPT_XFERINFODATA, pri_ptr);
+    curl_easy_setopt(chan->get_handle(),
+        CURLOPT_XFERINFOFUNCTION, &NetService::on_callback_curl_progress);
+    curl_easy_setopt(chan->get_handle(), CURLOPT_NOPROGRESS, 0);
+
+    //socket (not used)
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_SOCKOPTFUNCTION, &CNetManager::curl_after_sock_create_cb);
+    //curl_easy_setopt(chan->get_handle(), CURLOPT_SOCKOPTDATA, pri_ptr);
+
+    //head
+    curl_easy_setopt(chan->get_handle(),
+        CURLOPT_HEADERFUNCTION, &NetService::on_callback_curl_head);
+    curl_easy_setopt(chan->get_handle(), CURLOPT_HEADERDATA, pri_ptr);
+
+    auto ret = curl_multi_add_handle(this->_net_handle.Get(), chan->get_handle());
+    if (ret != CURLE_OK) {
+        baselog::warn("[ns] curl_multi_add_handle failed");
+    }
+    baselog::trace("[ns] on_channel_request new request curl handle added= {}", (void*)chan->get_handle());
+    return (env == nullptr);
 }
 
 size_t NetService::on_callback_curl_write(
@@ -615,92 +719,6 @@ int NetService::on_callback_curl_progress(
             UserCallbackTask{ nullptr, NetResultType::NRT_ONCB_PROGRESS, ptr_pri });
     }
     return 0;
-}
-
-bool NetService::on_channel_request(NetChannel* chan,
-    const std::string url, CallbackType cb, void* param, int timeout_ms)
-{
-    if (chan == nullptr) {
-        IMMEDIATE_CRASH();
-    }
-
-    //create && assign private data
-    auto pri_ptr = reinterpret_cast<void*>(borrow_private_info());
-    baselog::trace("[ns] new private info created: {}", pri_ptr);
-    auto lpi = reinterpret_cast<LibcurlPrivateInfo*>(pri_ptr);
-    lpi->chan = chan;
-    lpi->cb = cb;
-    lpi->param = param;
-    lpi->url = url;
-    lpi->timeout_ms = timeout_ms;
-
-    //libcurl set opts
-
-    //proxy stuff upport
-    //curl_easy_setopt(curl, CURLOPT_PROXY, @proxy_);
-    //curl_easy_setopt(curl, CURLOPT_PROXYUSERNAME, @user_name_);
-    //curl_easy_setopt(curl, CURLOPT_PROXYPASSWORD, @user_pass_);
-
-    //http/https curl
-    curl_easy_setopt(chan->get_handle(), CURLOPT_URL, url.c_str());
-
-    //enable all supported built-in compressions
-    curl_easy_setopt(chan->get_handle(), CURLOPT_ACCEPT_ENCODING, "");
-
-    //redirect setting:CURL_REDIR_POST_ALL = (CURL_REDIR_POST_301 | CURL_REDIR_POST_302 |CURL_REDIR_POST_303)
-    curl_easy_setopt(chan->get_handle(), CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
-    curl_easy_setopt(chan->get_handle(), CURLOPT_FOLLOWLOCATION, 1L);
-
-    //https/ssl/tls stuff
-    //xp support
-    //if (IsWInXP()) {
-        //curl_easy_setopt(chan->get_handle(), CURLOPT_SSLVERSION, CURL_SSLVERSION_SSLv3);
-    //}
-    //This option determines whether curl verifies the authenticity of the peer's certificate.
-    //By default, curl assumes a value of 1.
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_SSL_VERIFYPEER, 1L);
-    //This option determines whether libcurl verifies that the server cert is for the server it is known as.
-    //When the verify value is 0, the connection succeeds regardless of the names in the certificate. Use that ability with caution!
-    //The default value for this option is 2.
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_SSL_VERIFYHOST, 2);
-
-    //timeout stuff
-    //the maximum time in milliseconds that you allow the libcurl transfer operation to take.
-    //Default timeout is 0 (zero) which means it never times out during transfer.
-    curl_easy_setopt(chan->get_handle(), CURLOPT_TIMEOUT_MS, timeout_ms);
-    //Set to zero to switch to the default built-in connection timeout - 300 seconds
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 1);
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT, (timeout_ms / 1000) + 10);
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_CONNECTTIMEOUT_MS, timeout_ms); 
-
-    //private setting
-    curl_easy_setopt(chan->get_handle(), CURLOPT_PRIVATE, pri_ptr);
-
-    //write
-    curl_easy_setopt(chan->get_handle(), CURLOPT_WRITEDATA, pri_ptr);
-    curl_easy_setopt(chan->get_handle(),
-        CURLOPT_WRITEFUNCTION, &NetService::on_callback_curl_write);
-    //progress
-    curl_easy_setopt(chan->get_handle(), CURLOPT_XFERINFODATA, pri_ptr);
-    curl_easy_setopt(chan->get_handle(),
-        CURLOPT_XFERINFOFUNCTION, &NetService::on_callback_curl_progress);
-    curl_easy_setopt(chan->get_handle(), CURLOPT_NOPROGRESS, 0);
-
-    //socket (not used)
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_SOCKOPTFUNCTION, &CNetManager::curl_after_sock_create_cb);
-    //curl_easy_setopt(chan->get_handle(), CURLOPT_SOCKOPTDATA, pri_ptr);
-
-    //head
-    curl_easy_setopt(chan->get_handle(),
-        CURLOPT_HEADERFUNCTION, &NetService::on_callback_curl_head);
-    curl_easy_setopt(chan->get_handle(), CURLOPT_HEADERDATA, pri_ptr);
-
-    auto ret = curl_multi_add_handle(this->_net_handle.Get(), chan->get_handle());
-    if (ret != CURLE_OK) {
-        baselog::warn("[ns] curl_multi_add_handle failed");
-    }
-    baselog::trace("[ns] on_channel_request new request curl handle added= {}", (void*)chan->get_handle());
-    return true;
 }
 
 }

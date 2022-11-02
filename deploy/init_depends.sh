@@ -94,7 +94,7 @@ main() {
     do_or_die mkdir -p $dir_third_output_path/lib
     
 	#deploy libcurl first
-    deploy_libcurl $config_flag $machine_flag
+    #deploy_libcurl $config_flag $machine_flag
 
     #deploy winoah
     deploy_winoah $config_flag $machine_flag

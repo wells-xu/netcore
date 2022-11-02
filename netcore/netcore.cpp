@@ -2,7 +2,9 @@
 //
 
 #include "stdafx.h"
+
 #include "netcore.h"
+
 #include "net_service.h"
 #include <base/log/logger.h>
 
@@ -16,7 +18,13 @@ namespace {
 
     class CurlGlobalStuff {
     public:
-        CurlGlobalStuff() {
+        CurlGlobalStuff(){}
+        ~CurlGlobalStuff() {}
+        static CurlGlobalStuff& Instance() {
+            static base::NoDestructor<CurlGlobalStuff> instance;
+            return *instance;
+        }
+        bool Initialize() {
             if (!baselog::initialize(baselog::log_sink::windebug_sink)) {
                 IMMEDIATE_CRASH();
             }
@@ -25,28 +33,24 @@ namespace {
             if (ret != CURLM_OK) {
                 baselog::fatal("[ns] libcurl global init failed");
             }
-
+            return (ret == CURLM_OK);
         }
-        ~CurlGlobalStuff() {
+        bool UnInitialize() {
             curl_global_cleanup();
             baselog::info("[ns] libcurl global uninitialize");
-            baselog::uninitialize();
-        }
-
-        static CurlGlobalStuff& MarkInstance() {
-            static CurlGlobalStuff instance;
-            return instance;
+            return baselog::uninitialize();
         }
     };
 }
 
 bool net_service_startup()
 {
-    CurlGlobalStuff::MarkInstance();
+    if (!CurlGlobalStuff::Instance().Initialize()) {
+        return false;
+    }
 
     static base::NoDestructor<NetService> instance;
     g_static_net_service = instance.get();
-    //g_static_net_service = new NetService;
 
     if (g_static_net_service != nullptr) {
         return g_static_net_service->init();
@@ -71,11 +75,17 @@ bool net_service_shutdown(INetService* netservice)
         return false;
     }
 
-    auto ret = g_static_net_service->close();
-    //delete g_static_net_service;
-    //g_static_net_service = nullptr;
-    baselog::error("[ns] net service shutdown: {}", ret);
-    return ret;
+    baselog::info("[ns] net service is shutdowning...");
+    if (!g_static_net_service->close()) {
+        return false;
+    }
+
+    baselog::info("[ns] net service shutdown done...");
+    if (!CurlGlobalStuff::Instance().UnInitialize()) {
+        return false;
+    }
+
+    return true;
 }
 
 }

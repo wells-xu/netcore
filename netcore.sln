@@ -12,6 +12,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_netcore", "test_netcor
 		{13D9414A-E960-4DEA-B7CB-7FE6FD468B37} = {13D9414A-E960-4DEA-B7CB-7FE6FD468B37}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_cases", "test_cases\test_cases.vcxproj", "{28615209-FEE4-48F2-9EE8-C71163F854B6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -40,6 +42,14 @@ Global
 		{C2FD152E-5390-4062-B2D5-4F4DE4A887A3}.Release|Win32.Build.0 = Release|Win32
 		{C2FD152E-5390-4062-B2D5-4F4DE4A887A3}.Release|x64.ActiveCfg = Release|Win32
 		{C2FD152E-5390-4062-B2D5-4F4DE4A887A3}.Release|x64.Build.0 = Release|Win32
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Debug|Win32.ActiveCfg = Debug|Win32
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Debug|Win32.Build.0 = Debug|Win32
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Debug|x64.ActiveCfg = Debug|x64
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Debug|x64.Build.0 = Debug|x64
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Release|Win32.ActiveCfg = Release|Win32
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Release|Win32.Build.0 = Release|Win32
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Release|x64.ActiveCfg = Release|x64
+		{28615209-FEE4-48F2-9EE8-C71163F854B6}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

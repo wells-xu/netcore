@@ -304,8 +304,8 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                 }
             } else if (task.delivered_type == NetResultType::NRT_ONCB_FINISH) {
                 NetResultFinish nrf;
+                nrf.request_url = task.pri->url.c_str();
                 task.pri->chan->get_http_response_finish(nrf);
-
 
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrf), task.pri->param);

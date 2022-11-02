@@ -107,6 +107,8 @@ struct NetResultWrite {
 struct NetResultFinish {
     //result code
     NetResultCode result_code{ NetResultCode::CURLE_UNKOWN_ERROR };
+    // http request url
+    const char* request_url = nullptr;
     //transfered body data
     const char* data = nullptr;
     std::int64_t data_len = 0;

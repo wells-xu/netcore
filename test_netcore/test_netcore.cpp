@@ -41,6 +41,7 @@ void on_call(netcore::NetResultType type, void* data, void* context)
         break;
     case netcore::NetResultType::NRT_ONCB_FINISH:
         baselog::info("[user_call] http finished message: ");
+        baselog::info("[user_call] url= {}", finish->request_url);
         baselog::info("[user_call] result_code= {}", (int)finish->result_code);
         baselog::info("[user_call] response_code= {}", finish->http_response_code);
         baselog::info("[user_call] content_type= {}", SAFE_STRING_PRINTF(finish->http_content_type));
@@ -73,33 +74,15 @@ void thread_request(netcore::INetChannel *chan)
             return;
         }
 
-        //baselog::trace("[ns] ready to  post a request...");
-        //auto ret = chan->send_request("https://example.com", std::bind(
-        ////auto ret = chan->send_request("https://macx.net", std::bind(
-        //    on_call, std::placeholders::_1, std::placeholders::_2,
-        //    std::placeholders::_3));
-        //baselog::info("new request has done: {}", ret);
-        //auto ru64 = base::RandUint64() % 3000;
-        //baselog::trace("requesting done with some sleep: {}ms", ru64);
-        //std::this_thread::sleep_for(std::chrono::milliseconds(ru64));
-        //std::this_thread::sleep_for(std::chrono::milliseconds(1000 * 10));
-
         baselog::info("post request start...");
-        //auto ret = chan->post_request("https://example.com", std::bind(
-            auto ret = chan->send_request("https://macx.net", std::bind(
+        auto ret = chan->post_request("https://example.com", std::bind(
+            //auto ret = chan->send_request("https://macx.net", std::bind(
             on_call, std::placeholders::_1, std::placeholders::_2,
             std::placeholders::_3), (void*)chan);
         baselog::info("post request end");
         break;
     }
 }
-
-class CallClass {
-public:
-    int func_foo(int a, int b, void* c) {
-        return (a + b + *(int*)c);
-    }
-};
 
 int _tmain(int argc, _TCHAR* argv[])
 {
@@ -128,9 +111,9 @@ int _tmain(int argc, _TCHAR* argv[])
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
     chans.push_back(chan);
     baselog::info("send request start again...");
-    auto ret = chan->send_request("https://youtube.com", std::bind(
+    //auto ret = chan->send_request("https://youtube.com", std::bind(
        //auto ret = chan->send_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
-       //auto ret = chan->post_request("https://macx.net", std::bind(
+       auto ret = chan->post_request("https://example.com", std::bind(
         on_call, std::placeholders::_1, std::placeholders::_2,
         std::placeholders::_3), (void*)0x123456);
     baselog::info("send request end");
@@ -140,9 +123,9 @@ int _tmain(int argc, _TCHAR* argv[])
     //std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
     //chan->send_stop();
 
-    //char x = 0;
-    //std::cout << "net requests all done" << std::endl;
-    //std::cin >> x;
+    char x = 0;
+    std::cout << "net requests all done" << std::endl;
+    std::cin >> x;
     for (auto i : chans) {
         NetcoreWrapper::Instance().NetServiceInstance()->remove_channel(i);
     }

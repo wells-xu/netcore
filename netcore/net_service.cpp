@@ -294,7 +294,7 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                     reinterpret_cast<void*>(&nrf), task.pri->param);
 
                 baselog::info("[ns] reset spe with event= {}", (void*)task.pri->env);
-                task.pri->chan->reset_spe_thread_safe();
+                task.pri->chan->reset_special();
                 if (task.pri->env != nullptr) {
                     baselog::info("[ns] setevent1 done: event= {}", (void*)task.pri->env);
                     ::SetEvent(task.pri->env->Get());
@@ -533,7 +533,7 @@ bool NetService::on_channel_close(NetChannel* channel, HandleShell* env)
             { nullptr, NetResultType::NRT_ONCB_FINISH, ptr_pri });
     } else {
         baselog::info("[ns] setevent2 done: event= {}", (void*)env);
-        channel->reset_spe_thread_safe();
+        channel->reset_special();
         if (env != nullptr) {
             ::SetEvent(env->Get());
         }
@@ -549,7 +549,7 @@ bool NetService::on_channel_remove(NetChannel* channel, HandleShell* env)
 {
     baselog::trace("[ns] on_channel_remove chan= {}", (void*)channel);
     this->on_channel_close(channel, env);
-    channel->reset_all_thread_safe();
+    channel->reset();
     if (!this->_channel_pool.retrieve(channel)) {
         IMMEDIATE_CRASH();
     } 

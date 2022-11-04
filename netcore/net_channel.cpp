@@ -340,6 +340,8 @@ bool NetChannel::post_request(
         _is_processing = true;
     }
 
+    reset_session();
+
     setup_curl_opts();
     
     _host_service->post_request(std::bind(
@@ -365,6 +367,8 @@ bool NetChannel::send_request(
         _is_processing = true;
     }
 
+    reset_session();
+
     setup_curl_opts();
 
     _host_service->send_request(std::bind(
@@ -387,7 +391,7 @@ void NetChannel::send_stop()
     _host_service->send_request(std::bind(
         &NetService::on_channel_close, this->_host_service, this, std::placeholders::_1));
 
-    reset_spe_thread_safe();
+    reset_special();
     baselog::trace("[ns] send_stop all done");
 }
 
@@ -410,21 +414,26 @@ bool NetChannel::is_callback_switches_exist(NetResultType nrt)
     return IS_NET_RESULT_TYPE_CONTAIN(_callback_switches, nrt);
 }
 
-void NetChannel::reset_all_thread_safe()
+void NetChannel::reset()
 {
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
-        //_is_processing = false;
+        _is_processing = false;
         _host_service = nullptr;
+        _callback_switches = static_cast<std::uint32_t>(
+            NetResultType::NRT_ONCB_FINISH);
+    }
+}
+
+void NetChannel::reset_session()
+{
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
         //http opts
         _request_headers.Close();
         _mime_part.Close();
         _http_body.clear();
         _http_cookie.clear();
-
-        _callback_switches = static_cast<std::uint32_t>(
-            NetResultType::NRT_ONCB_FINISH);
-
         //time
         _finish_time_ms = 0;
         //response stuff
@@ -435,7 +444,7 @@ void NetChannel::reset_all_thread_safe()
     }
 }
 
-void NetChannel::reset_spe_thread_safe()
+void NetChannel::reset_special()
 {
     {
         std::lock_guard<std::mutex> lg(_main_mutex);

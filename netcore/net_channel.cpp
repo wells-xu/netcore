@@ -370,7 +370,6 @@ bool NetChannel::send_request(
     _host_service->send_request(std::bind(
         &NetService::on_channel_request, _host_service, this,
         url, callback, param, timeout_ms, std::placeholders::_1));
-    reset_thread_safe();
     baselog::trace("[ns] channel send_request done");
     return true;
 }
@@ -388,7 +387,7 @@ void NetChannel::send_stop()
     _host_service->send_request(std::bind(
         &NetService::on_channel_close, this->_host_service, this, std::placeholders::_1));
 
-    reset_thread_safe();
+    reset_spe_thread_safe();
     baselog::trace("[ns] send_stop all done");
 }
 
@@ -411,14 +410,13 @@ bool NetChannel::is_callback_switches_exist(NetResultType nrt)
     return IS_NET_RESULT_TYPE_CONTAIN(_callback_switches, nrt);
 }
 
-void NetChannel::reset_thread_safe()
+void NetChannel::reset_all_thread_safe()
 {
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
-        _is_processing = false;
+        //_is_processing = false;
         _host_service = nullptr;
         //http opts
-        curl_easy_reset(this->_net_handle.Get());
         _request_headers.Close();
         _mime_part.Close();
         _http_body.clear();
@@ -435,6 +433,15 @@ void NetChannel::reset_thread_safe()
         _http_response_progress = NetResultProgress();
         _http_response_finish = NetResultFinish();
     }
+}
+
+void NetChannel::reset_spe_thread_safe()
+{
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        _is_processing = false;
+    }
+    curl_easy_reset(this->_net_handle.Get());
 }
 
 void NetChannel::feed_http_response_header(const char* buf, std::size_t len)

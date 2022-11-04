@@ -135,11 +135,7 @@ void NetService::do_pending_task(std::deque<TaskInfo>& tasks)
 {
     while(!tasks.empty()) {
         auto &cb = tasks.front();
-        auto ret = cb.cb(cb.env);
-        if (ret && cb.env != nullptr) {
-            baselog::info("[ns] setevent0 done ret= {}, event= {}", ret, (void*)cb.env);
-            ::SetEvent(cb.env->Get());
-        }
+        cb.cb(cb.env);
         tasks.pop_front();
     }
 }
@@ -178,22 +174,7 @@ void NetService::do_finish_channel()
             ptr_pri->chan->feed_http_finish_time_ms();
         }
         
-        if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_FINISH)) {
-            auto ret = curl_multi_remove_handle(_net_handle.Get(), ptr_pri->chan->get_handle());
-            if (ret != CURLM_OK) {
-                IMMEDIATE_CRASH();
-                return;
-            }
-
-            this->add_user_callback(UserCallbackTask
-                { nullptr, NetResultType::NRT_ONCB_FINISH, ptr_pri });
-        } else {
-            this->on_channel_close(ptr_pri->chan, nullptr);
-            if (ptr_pri->env != nullptr) {
-                ::SetEvent(ptr_pri->env->Get());
-            }
-            this->restore_private_info(ptr_pri);
-        }
+        this->on_channel_close(ptr_pri->chan, ptr_pri->env);
      } while (1);
 }
 
@@ -272,7 +253,8 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
     while (!tasks.empty()) {
         auto &task = tasks.front();
        
-        baselog::trace("[ns] do_user_pending_tasks type= {}", (int)task.delivered_type);
+        baselog::trace("[ns] do_user_pending_tasks type= {}, cb= {}",
+            (int)task.delivered_type, task.pri->cb ? true:false);
         if (task.pri->cb) {
             if (task.delivered_type == NetResultType::NRT_ONCB_HEADER) {
                 NetResultHeader nrh;
@@ -307,14 +289,16 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                 nrf.request_url = task.pri->url.c_str();
                 task.pri->chan->get_http_response_finish(nrf);
 
+                baselog::trace("[ns] cb calling with channel= {}", (void*)task.pri->chan);
                 task.pri->cb(task.delivered_type,
                     reinterpret_cast<void*>(&nrf), task.pri->param);
 
+                baselog::info("[ns] reset spe with event= {}", (void*)task.pri->env);
+                task.pri->chan->reset_spe_thread_safe();
                 if (task.pri->env != nullptr) {
-                    baselog::info("[ns] setevent done: event= {}", (void*)task.pri->env);
+                    baselog::info("[ns] setevent1 done: event= {}", (void*)task.pri->env);
                     ::SetEvent(task.pri->env->Get());
                 }
-                task.pri->chan->reset_thread_safe();
 
                 if (!restore_private_info(task.pri)) {
                     IMMEDIATE_CRASH();
@@ -389,8 +373,10 @@ void NetService::remove_channel(INetChannel* chan)
         return;
     }
 
+    baselog::trace("[ns] remove_channel send request: {}", (void*)chan);
     this->send_request(std::bind(
         &NetService::on_channel_remove, this, channel, std::placeholders::_1));
+    baselog::trace("[ns] remove_channel send request done: {}", (void*)chan);
 }
 
 void NetService::send_request(NSCallBack callback)
@@ -516,19 +502,46 @@ bool NetService::restore_wrote_buffer(std::string* ptr)
     return true;
 }
 
-bool NetService::on_channel_close(NetChannel* channel, HandleShell*)
+bool NetService::on_channel_close(NetChannel* channel, HandleShell* env)
 {
     if (channel == nullptr) {
         IMMEDIATE_CRASH();
     }
 
-    baselog::trace("[ns] on_channel_close remove channel from libcurl...");
-    auto ret = curl_multi_remove_handle(_net_handle.Get(), channel->get_handle());
+    LibcurlPrivateInfo* ptr_pri = nullptr;
+    curl_easy_getinfo(channel->get_handle(), CURLINFO_PRIVATE, &ptr_pri);
+    if (ptr_pri == nullptr) {
+        if (env != nullptr) {
+            ::SetEvent(env->Get());
+        }
+        return true;
+    }
+    if (ptr_pri->chan == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    auto ret = curl_multi_remove_handle(
+        _net_handle.Get(), ptr_pri->chan->get_handle());
     if (ret != CURLM_OK) {
         IMMEDIATE_CRASH();
     }
 
-    channel->reset_thread_safe();
+    if (ptr_pri->cb && ptr_pri->chan->is_callback_switches_exist(
+        NetResultType::NRT_ONCB_FINISH)) {
+        ptr_pri->env = env;
+        this->add_user_callback(UserCallbackTask
+            { nullptr, NetResultType::NRT_ONCB_FINISH, ptr_pri });
+    } else {
+        baselog::info("[ns] setevent2 done: event= {}", (void*)env);
+        channel->reset_spe_thread_safe();
+        if (env != nullptr) {
+            ::SetEvent(env->Get());
+        }
+        this->restore_private_info(ptr_pri);
+    }
+
+    baselog::trace("[ns] on_channel_close remove channel from libcurl: channel= {}", 
+        (void*)channel);
     return true;
 }
 
@@ -536,10 +549,10 @@ bool NetService::on_channel_remove(NetChannel* channel, HandleShell* env)
 {
     baselog::trace("[ns] on_channel_remove chan= {}", (void*)channel);
     this->on_channel_close(channel, env);
+    channel->reset_all_thread_safe();
     if (!this->_channel_pool.retrieve(channel)) {
         IMMEDIATE_CRASH();
-    }
-
+    } 
     return true;
 }
 
@@ -641,7 +654,8 @@ size_t NetService::on_callback_curl_write(
     if (ptr_pri->chan == nullptr) {
         IMMEDIATE_CRASH();
     }
-    if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_WRITE)) {
+    if (ptr_pri->cb && ptr_pri->chan->is_callback_switches_exist(
+        NetResultType::NRT_ONCB_WRITE)) {
         auto buf = ptr_pri->chan->host_service()->borrow_wrote_buffer();
         if (buf == nullptr) {
             IMMEDIATE_CRASH();
@@ -681,7 +695,8 @@ size_t NetService::on_callback_curl_head(
     }
 
     ptr_pri->chan->feed_http_response_header(buffer, (size * nitems));
-    if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_HEADER)) {
+    if (ptr_pri->cb && ptr_pri->chan->is_callback_switches_exist(
+        NetResultType::NRT_ONCB_HEADER)) {
         auto buf = ptr_pri->chan->host_service()->borrow_short_buffer();
         if (buf == nullptr) {
             IMMEDIATE_CRASH();
@@ -714,7 +729,8 @@ int NetService::on_callback_curl_progress(
         return 0;
     }
 
-    if (ptr_pri->chan->is_callback_switches_exist(NetResultType::NRT_ONCB_PROGRESS)) {
+    if (ptr_pri->cb && ptr_pri->chan->is_callback_switches_exist(
+        NetResultType::NRT_ONCB_PROGRESS)) {
         ptr_pri->chan->host_service()->add_user_callback(
             UserCallbackTask{ nullptr, NetResultType::NRT_ONCB_PROGRESS, ptr_pri });
     }

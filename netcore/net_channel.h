@@ -121,7 +121,8 @@ private:
     }
     bool is_callback_switches_exist(NetResultType nrt);
 
-    void reset_thread_safe();
+    void reset_all_thread_safe();
+    void reset_spe_thread_safe();
 
     //https stuff
     void feed_http_response_header(const char *buf, std::size_t len);

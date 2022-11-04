@@ -33,6 +33,9 @@
     <ClInclude Include="file.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="netcore_monkey_test.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -46,6 +49,9 @@
     </ClCompile>
     <ClCompile Include="file.cpp">
       <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="netcore_monkey_test.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

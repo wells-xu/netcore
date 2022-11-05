@@ -184,8 +184,7 @@ bool NetChannel::set_mime_data(const std::string& part_name,
         return false;
     }
 
-    CURLcode ret = CURLE_OK;
-    CurlMimeHandle cmh;
+    curl_mimepart* part = nullptr;
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         if (_is_processing) {
@@ -195,17 +194,24 @@ bool NetChannel::set_mime_data(const std::string& part_name,
         if (!this->_http_body.empty()) {
             return false;
         }
-        cmh.Set(curl_mime_init(this->_net_handle.Get()));
+
+        if (!_mime_part.IsValid()) {
+            _mime_part.Set(curl_mime_init(this->_net_handle.Get()));
+        }
+
+        if (!_mime_part.IsValid()) {
+            IMMEDIATE_CRASH();
+        }
+        part = curl_mime_addpart(_mime_part.Get());
     }
 
-    if (!cmh.IsValid()) {
+    if (part == nullptr) {
         IMMEDIATE_CRASH();
     }
 
-    auto part = curl_mime_addpart(cmh.Get());
     //curl_mime_data sets a mime part's body content from memory data.
     //data points to the data that gets copied by this function.The storage may safely be reused after the call.
-    ret = curl_mime_data(part, part_content.c_str(), part_content.size());
+    auto ret = curl_mime_data(part, part_content.c_str(), part_content.size());
     if (ret != CURLE_OK) {
         return false;
     }
@@ -220,11 +226,6 @@ bool NetChannel::set_mime_data(const std::string& part_name,
         return false;
     }
 
-    {
-        std::lock_guard<std::mutex> lg(_main_mutex);
-        _mime_part = std::move(cmh);
-    }
-
     return true;
 }
 
@@ -237,8 +238,7 @@ bool NetChannel::set_mime_file(
         return false;
     }
 
-    CURLcode ret = CURLE_OK;
-    CurlMimeHandle cmh;
+    curl_mimepart* part = nullptr;
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         if (_is_processing) {
@@ -249,14 +249,21 @@ bool NetChannel::set_mime_file(
             return false;
         }
 
-        cmh.Set(curl_mime_init(this->_net_handle.Get()));
+        if (!_mime_part.IsValid()) {
+            _mime_part.Set(curl_mime_init(this->_net_handle.Get()));
+        }
+
+        if (!_mime_part.IsValid()) {
+            IMMEDIATE_CRASH();
+        }
+        part = curl_mime_addpart(_mime_part.Get());
     }
 
-    if (!cmh.IsValid()) {
+    if (part == nullptr) {
         IMMEDIATE_CRASH();
     }
-    auto part = curl_mime_addpart(cmh.Get());
-    ret = curl_mime_filedata(part, file_path.c_str());
+
+    auto ret = curl_mime_filedata(part, file_path.c_str());
     if (ret != CURLE_OK) {
         return false;
     }
@@ -275,11 +282,6 @@ bool NetChannel::set_mime_file(
         return false;
     }
 
-    {
-        std::lock_guard<std::mutex> lg(_main_mutex);
-        _mime_part = std::move(cmh);
-    }
-    
     return true;
 }
 

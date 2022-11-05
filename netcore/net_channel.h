@@ -165,7 +165,6 @@ private:
     std::string _http_response_content;
     NetResultProgress _http_response_progress;
     NetResultFinish _http_response_finish;
-
 };
 
 } //namespace netcore

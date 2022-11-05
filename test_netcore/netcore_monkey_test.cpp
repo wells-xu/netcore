@@ -40,10 +40,11 @@ void on_call_monkey(netcore::NetResultType type, void* data, void* context)
         baselog::infox(g_logger_name, "[user_call] new response data: len= {}", response->data_len);
         break;
     case netcore::NetResultType::NRT_ONCB_FINISH:
-        baselog::infox(g_logger_name, "[user_call] http finished message: url={}-{}.{}.{}.{}-clen={}-metric={}.{}.{}",
+        baselog::infox(g_logger_name, "[user_call] http finished message: url={}-{}.{}.{}.{}-clen={}-metric={}.{}.[{}|{}]",
             finish->request_url, (int)finish->result_code, finish->http_response_code,
             finish->http_header_len, finish->data_len, finish->content_length_download,
-            finish->total_time_ms, finish->redirect_count, finish->app_average_speed);
+            finish->total_time_ms, finish->redirect_count,
+            finish->app_average_speed, finish->download_speed_bytes_persecond);
         //baselog::infox(g_logger_name, "[user_call] http finished message: ");
         //baselog::infox(g_logger_name, "[user_call] url= {}", finish->request_url);
         //baselog::infox(g_logger_name, "[user_call] result_code= {}", (int)finish->result_code);

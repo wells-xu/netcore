@@ -33,6 +33,7 @@ REGISTER_ENUM_VALUES(netcore::NetResultCode,
     netcore::NetResultCode::CURLE_RECV_ERROR,
     netcore::NetResultCode::CURLE_BAD_CONTENT_ENCODING,
     netcore::NetResultCode::CURLE_PROXY,
+    netcore::NetResultCode::CURLE_CANCEL_BY_USER,
     netcore::NetResultCode::CURLE_UNKOWN_ERROR);
 
 namespace netcore {
@@ -514,6 +515,7 @@ bool NetService::on_channel_close(NetChannel* channel, HandleShell* env)
         if (env != nullptr) {
             ::SetEvent(env->Get());
         }
+        baselog::info("[ns] binggo... your scrabtion had finished: chan= {}", (void*)channel);
         return true;
     }
     if (ptr_pri->chan == nullptr) {

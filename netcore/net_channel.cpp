@@ -385,14 +385,12 @@ void NetChannel::send_stop()
         if (!_is_processing) {
             return;
         }
+
+        this->_http_response_finish.result_code = NetResultCode::CURLE_CANCEL_BY_USER;
     }
 
-    baselog::trace("[ns] send_stop posting...");
     _host_service->send_request(std::bind(
         &NetService::on_channel_close, this->_host_service, this, std::placeholders::_1));
-
-    reset_special();
-    baselog::trace("[ns] send_stop all done");
 }
 
 void NetChannel::post_stop()
@@ -402,6 +400,8 @@ void NetChannel::post_stop()
         if (!_is_processing) {
             return;
         }
+
+        this->_http_response_finish.result_code = NetResultCode::CURLE_CANCEL_BY_USER;
     }
  
     _host_service->post_request(std::bind(
@@ -429,11 +429,6 @@ void NetChannel::reset_session()
 {
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
-        //http opts
-        _request_headers.Close();
-        _mime_part.Close();
-        _http_body.clear();
-        _http_cookie.clear();
         //time
         _finish_time_ms = 0;
         //response stuff
@@ -449,6 +444,11 @@ void NetChannel::reset_special()
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         _is_processing = false;
+        //http opts
+        _request_headers.Close();
+        _mime_part.Close();
+        _http_body.clear();
+        _http_cookie.clear();
     }
     curl_easy_reset(this->_net_handle.Get());
 }

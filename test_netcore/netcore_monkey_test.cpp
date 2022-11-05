@@ -266,7 +266,7 @@ void NetcoreMonkeyTest::thrad_func_request()
             }
         }
 
-        auto sleep_timems = base::RandInt(100, 500);
+        auto sleep_timems = base::RandInt(300, 900);
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_timems));
     }
 }

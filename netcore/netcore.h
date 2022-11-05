@@ -79,6 +79,8 @@ enum class NetResultCode {
     CURLE_BAD_CONTENT_ENCODING = 61,
     //Proxy handshake error.CURLINFO_PROXY_ERROR provides extra details on the specific problem.
     CURLE_PROXY = 97, 
+    //Canceled request by user
+    CURLE_CANCEL_BY_USER = 400, 
     //All other error type
     CURLE_UNKOWN_ERROR = 0x8000,
 };

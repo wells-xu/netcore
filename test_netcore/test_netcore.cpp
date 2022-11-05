@@ -109,7 +109,7 @@ int _tmain(int argc, _TCHAR* argv[])
         baselog::error("load netcore failed");
         return 1;
     }
-    baselog::set_logger_level(baselog::log_level::info);
+    //baselog::set_logger_level(baselog::log_level::info);
     baselog::debugx(g_logger_name, "load netcore successed");
 
     std::vector<netcore::INetChannel*> chans;

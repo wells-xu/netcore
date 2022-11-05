@@ -337,12 +337,15 @@ bool NetChannel::post_request(
             return false;
         }
 
-        _http_response_progress.startup_time =
-            base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
         _is_processing = true;
     }
 
     reset_session();
+    auto tm = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        _http_response_progress.startup_time = tm;
+    }
 
     setup_curl_opts();
     
@@ -364,12 +367,15 @@ bool NetChannel::send_request(
             return false;
         }
 
-        _http_response_progress.startup_time =
-            base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
         _is_processing = true;
     }
 
     reset_session();
+    auto tm = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+    {
+        std::lock_guard<std::mutex> lg(_main_mutex);
+        _http_response_progress.startup_time = tm;
+    }
 
     setup_curl_opts();
 
@@ -481,6 +487,7 @@ bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
         return false;
     }
 
+    auto tm = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
     {
         std::lock_guard<std::mutex> lg(_main_mutex);
         if (dltotal != _http_response_progress.download_total_size ||
@@ -491,7 +498,7 @@ bool NetChannel::feed_http_response_progress(std::int64_t dltotal,
             _http_response_progress.download_transfered_size = dlnow;
             _http_response_progress.upload_total_size = ultotal;
             _http_response_progress.upload_transfered_size = ulnow;
-            _http_response_progress.current_time = base::Time::Now().ToDeltaSinceWindowsEpoch().InMilliseconds();
+            _http_response_progress.current_time = tm;
             _http_response_progress.download_speed = (static_cast<std::double_t>(
                 _http_response_progress.download_transfered_size) * 1000.0 /
                 (_http_response_progress.current_time - _http_response_progress.startup_time));

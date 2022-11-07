@@ -6,7 +6,7 @@
 #include <atomic>
 #include <mutex>
 
-#include <netcore/netcore.h>
+#include <include/netcore/netcore.h>
 #include <base/system/dll_client_def.h>
 
 namespace base {

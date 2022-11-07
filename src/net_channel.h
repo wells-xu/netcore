@@ -1,5 +1,5 @@
 #pragma once
-#include "netcore.h"
+#include <include/netcore/netcore.h>
 #include <thread>
 #include <mutex>
 

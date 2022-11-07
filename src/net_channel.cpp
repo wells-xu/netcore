@@ -1,7 +1,5 @@
-#include "stdafx.h"
-#include "net_channel.h"
-
-#include "net_service.h"
+#include <src/net_channel.h>
+#include <src/net_service.h>
 
 #include <base/log/logger.h>
 #include <base/comm/immediate_crash.h>
@@ -458,7 +456,6 @@ void NetChannel::reset_special()
         _http_body.clear();
         _http_cookie.clear();
     }
-    curl_easy_reset(this->_net_handle.Get());
 }
 
 void NetChannel::feed_http_response_header(const char* buf, std::size_t len)

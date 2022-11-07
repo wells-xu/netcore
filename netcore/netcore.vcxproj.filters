@@ -13,42 +13,39 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="include">
+      <UniqueIdentifier>{731e20a6-1913-4951-95bd-65a198bdef44}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{32d83756-3187-485e-beea-96c8db8bd03b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="stdafx.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="..\src\net_channel.h">
+      <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="targetver.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="..\src\net_service.h">
+      <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="netcore.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="net_channel.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="net_service.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="..\include\netcore\netcore.h">
+      <Filter>include</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="stdafx.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="netcore.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="dllmain.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="net_channel.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="..\src\net_channel.cpp">
+      <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="net_service.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="..\src\net_service.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\netcore.cpp">
+      <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

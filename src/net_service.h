@@ -1,6 +1,5 @@
 #pragma once
-
-#include "net_channel.h"
+#include <src/net_channel.h>
 
 #include <thread>
 #include <mutex>

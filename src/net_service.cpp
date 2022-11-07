@@ -1,11 +1,10 @@
-#include "stdafx.h"
-#include "net_service.h"
-
-#include "net_channel.h"
+#include <src/net_service.h>
 
 #include <base/log/logger.h>
 #include <base/comm/immediate_crash.h>
 #include <base/comm/valid_enum.h>
+
+#include <src/net_channel.h>
 
 REGISTER_ENUM_VALUES(netcore::NetResultCode,
     netcore::NetResultCode::CURLE_OK,
@@ -87,7 +86,7 @@ bool NetService::init()
         }
 
         if (!_wrote_buffer_pool.init(16, 10240)) {
-            baselog::error("[ns] short buffer pool inited failed");
+            baselog::error("[ns] wrote buffer pool inited failed");
             return false;
         }
 
@@ -528,6 +527,7 @@ bool NetService::on_channel_close(NetChannel* channel, HandleShell* env)
         IMMEDIATE_CRASH();
     }
 
+    curl_easy_reset(ptr_pri->chan->_net_handle.Get());
     if (ptr_pri->cb && ptr_pri->chan->is_callback_switches_exist(
         NetResultType::NRT_ONCB_FINISH)) {
         ptr_pri->env = env;

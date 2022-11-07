@@ -2,7 +2,6 @@
 //
 #pragma once
 
-#include "stdafx.h"
 #include <string>
 #include <functional>
  
@@ -236,8 +235,6 @@ public:
 
     virtual void send_stop() = 0;
     virtual void post_stop() = 0;
-
-    //virtual void on_callback() = 0;
 };
 
 }

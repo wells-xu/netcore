@@ -172,6 +172,8 @@ void NetService::do_finish_channel()
             ptr_pri->chan->feed_http_result_code(nrc);
             //finish timestamp
             ptr_pri->chan->feed_http_finish_time_ms();
+            //feed finish stuff
+            ptr_pri->chan->feed_http_response_finish();
         }
         
         this->on_channel_close(ptr_pri->chan, ptr_pri->env);
@@ -286,8 +288,8 @@ void NetService::do_user_pending_tasks(std::deque<UserCallbackTask>& tasks)
                 }
             } else if (task.delivered_type == NetResultType::NRT_ONCB_FINISH) {
                 NetResultFinish nrf;
-                nrf.request_url = task.pri->url.c_str();
                 task.pri->chan->get_http_response_finish(nrf);
+                nrf.request_url = task.pri->url.c_str();
 
                 baselog::trace("[ns] cb calling with channel= {}", (void*)task.pri->chan);
                 task.pri->cb(task.delivered_type,

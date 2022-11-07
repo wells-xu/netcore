@@ -87,27 +87,30 @@ void thread_request(netcore::INetChannel *chan)
     }
 }
 
-int _tmain(int argc, _TCHAR* argv[])
+void test_monkey_test()
 {
     if (!NetcoreMonkeyTest::Instance().init(base::FilePath())) {
-        return 1;
+        return;
     }
     if (!NetcoreMonkeyTest::Instance().run()) {
-        return 1;
+        return;
     }
     char q = 0;
     std::cout << "press any key to exit..." << std::endl;
     std::cin >> q;
     NetcoreMonkeyTest::Instance().stop();
-    return 0;
+}
+
+void test_normal()
+{
     if (!baselog::initialize()) {
         baselog::error("baselog init failed");
-        return 1;
+        return;
     }
     auto ret1 = baselog::create_logger(g_logger_name, baselog::log_sink::windebug_sink, nullptr);
     if (!NetcoreWrapper::Instance().Initialize()) {
         baselog::error("load netcore failed");
-        return 1;
+        return;
     }
     //baselog::set_logger_level(baselog::log_level::info);
     baselog::debugx(g_logger_name, "load netcore successed");
@@ -117,22 +120,20 @@ int _tmain(int argc, _TCHAR* argv[])
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
     chan->enable_callback(netcore::NetResultType::NRT_ONCB_HEADER);
     chans.push_back(chan);
-    std::thread work_thread(thread_request, chan);
+    //std::thread work_thread(thread_request, chan);
     //g_is_stop.store(true);
 
-    chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
-    chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
-    chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
-    chans.push_back(chan);
+    //chan = NetcoreWrapper::Instance().NetServiceInstance()->create_channel();
+    //chan->enable_callback(netcore::NetResultType::NRT_ONCB_PROGRESS);
+    //chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
+    //chans.push_back(chan);
     baselog::infox(g_logger_name, "send request start again...");
-    auto ret = chan->send_request("https://youtube.com", std::bind(
+    auto ret = chan->send_request("http://www.people.com.cn", std::bind(
        //auto ret = chan->send_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
        //auto ret = chan->post_request("https://example.com", std::bind(
         on_call, std::placeholders::_1, std::placeholders::_2,
         std::placeholders::_3), (void*)0x123456);
-    baselog::infox(g_logger_name, "send request end");
-    work_thread.join();
-    baselog::infox(g_logger_name, "remove channel...");
+    //work_thread.join();
 
     //std::this_thread::sleep_for(std::chrono::milliseconds(5 * 1000));
     //chan->send_stop();
@@ -145,10 +146,16 @@ int _tmain(int argc, _TCHAR* argv[])
     }
     if (!NetcoreWrapper::Instance().UnInitialize()) {
         baselog::error("net service uninit failed");
-        return 1;
+        return;
     }
 
     baselog::infox(g_logger_name, "all done");
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+    test_monkey_test();
+    //test_normal();
 	return 0;
 }
 

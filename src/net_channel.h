@@ -1,9 +1,12 @@
 #pragma once
 #include <include/netcore/netcore.h>
+
 #include <thread>
 #include <mutex>
 
 #include <curl/curl.h>
+
+#include <base/comm/distrib_pool.h>
 #include <base/win/scoped_handle.h>
 
 namespace netcore {
@@ -131,6 +134,7 @@ private:
     bool feed_http_response_progress(std::int64_t dltotal,
         std::int64_t dlnow, std::int64_t ultotal, std::int64_t ulnow);
     void get_http_response_progress(NetResultProgress &np);
+    void feed_http_response_finish();
     void get_http_response_finish(NetResultFinish &nrf);
     void feed_http_result_code(NetResultCode code);
     void feed_http_finish_time_ms();
@@ -165,6 +169,8 @@ private:
     std::string _http_response_content;
     NetResultProgress _http_response_progress;
     NetResultFinish _http_response_finish;
+
+    base::DistribPoolNotThreadSafe<std::string> _short_buffer_pool;
 };
 
 } //namespace netcore

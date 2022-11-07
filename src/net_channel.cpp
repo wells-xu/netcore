@@ -5,6 +5,20 @@
 #include <base/comm/immediate_crash.h>
 #include <base/time/time.h>
 
+#define  HTTP_FINISH_FEED_WITH_STRING_POOL(p, a, b, c) \
+    do { \
+        p = nullptr; \
+        curl_easy_getinfo(get_handle(), a, &p); \
+        if (p != nullptr) { \
+            auto s = _short_buffer_pool.borrow(); \
+            if (s == nullptr) { \
+                IMMEDIATE_CRASH(); \
+            } \
+            s->assign(p); \
+            c.b = s->c_str(); \
+        } \
+    } while (0)
+
 namespace netcore {
 
 //CurlHandleTraits
@@ -37,6 +51,12 @@ bool NetChannel::init(NetService *host, NetChannel* chan)
 
         if (_host_service != nullptr) {
             return false;
+        }
+
+        if (!_short_buffer_pool.IsValid()) {
+            if (!_short_buffer_pool.init()) {
+                return false;
+            }
         }
     }
 
@@ -442,6 +462,7 @@ void NetChannel::reset_session()
         _http_response_content.clear();
         _http_response_progress = NetResultProgress();
         _http_response_finish = NetResultFinish();
+        _short_buffer_pool.retrieve_all();
     }
 }
 
@@ -515,7 +536,7 @@ void NetChannel::get_http_response_progress(NetResultProgress& np)
     np = _http_response_progress;
 }
 
-void NetChannel::get_http_response_finish(NetResultFinish& nrf)
+void NetChannel::feed_http_response_finish()
 {
     //get metrics from libcurl
     /*
@@ -559,6 +580,8 @@ void NetChannel::get_http_response_finish(NetResultFinish& nrf)
 
     CURLINFO_REDIRECT_TIME and CURLINFO_REDIRECT_TIME_T. The time it took for all redirection steps include name lookup, connect, pretransfer and transfer before final transaction was started. So, this is zero if no redirection took place.
     */
+    NetResultFinish nrf;
+    baselog::trace("[ns] feed_http_response_finish starting retrieved all with chan= {}", (void*)this);
 
     //http response code
     auto ret = curl_easy_getinfo(get_handle(), CURLINFO_RESPONSE_CODE, &nrf.http_response_code);
@@ -600,20 +623,22 @@ void NetChannel::get_http_response_finish(NetResultFinish& nrf)
     //content length download (from Content-Length: )
     curl_easy_getinfo(get_handle(), CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &nrf.content_length_download);
     //content type
-    curl_easy_getinfo(get_handle(), CURLINFO_CONTENT_TYPE, &nrf.http_content_type);
+    const char* ptr_str = nullptr;
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_CONTENT_TYPE, http_content_type, nrf);
+
     //client ip && port string
-    curl_easy_getinfo(get_handle(), CURLINFO_PRIMARY_IP, &nrf.primary_ip_string);
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_PRIMARY_IP, primary_ip_string, nrf);
     curl_easy_getinfo(get_handle(), CURLINFO_PRIMARY_PORT, &nrf.primary_port);
     //local ip && port string
-    curl_easy_getinfo(get_handle(), CURLINFO_LOCAL_IP, &nrf.local_ip_string);
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_LOCAL_IP, local_ip_string, nrf);
     curl_easy_getinfo(get_handle(), CURLINFO_LOCAL_PORT, &nrf.local_port);
     //scheme type
-    curl_easy_getinfo(get_handle(), CURLINFO_SCHEME, &nrf.scheme_type);
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_SCHEME, scheme_type, nrf);
     //referrer header
-    ret = curl_easy_getinfo(get_handle(), CURLINFO_REFERER, &nrf.referrer_header);
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_REFERER, referrer_header, nrf);
     //last effective url && method
-    curl_easy_getinfo(get_handle(), CURLINFO_EFFECTIVE_URL, &nrf.last_effective_url);
-    curl_easy_getinfo(get_handle(), CURLINFO_EFFECTIVE_METHOD, &nrf.last_effective_method);
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_EFFECTIVE_URL, last_effective_url, nrf);
+    HTTP_FINISH_FEED_WITH_STRING_POOL(ptr_str, CURLINFO_EFFECTIVE_METHOD, last_effective_method, nrf);
     
     std::lock_guard<std::mutex> lg(_main_mutex);
     nrf.data = this->_http_response_content.c_str();
@@ -623,6 +648,12 @@ void NetChannel::get_http_response_finish(NetResultFinish& nrf)
     nrf.http_header_len = this->_http_response_header.size();
     nrf.result_code = this->_http_response_finish.result_code;
     _http_response_finish = nrf;
+}
+
+void NetChannel::get_http_response_finish(NetResultFinish& nrf)
+{
+    std::lock_guard<std::mutex> lg(_main_mutex);
+    nrf = _http_response_finish;
 }
 
 void NetChannel::feed_http_result_code(NetResultCode code)

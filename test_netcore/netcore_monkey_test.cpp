@@ -151,6 +151,9 @@ bool NetcoreMonkeyTest::stop()
     }
 
     baselog::infox(g_logger_name, "stoping successed"); 
+    if (!baselog::uninitialize()) {
+        return false;
+    }
     return NetcoreWrapper::Instance().UnInitialize();
 }
 

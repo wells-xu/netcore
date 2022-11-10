@@ -128,9 +128,9 @@ void test_normal()
     //chan->enable_callback(netcore::NetResultType::NRT_ONCB_WRITE);
     //chans.push_back(chan);
     baselog::infox(g_logger_name, "send request start again...");
-    auto ret = chan->send_request("http://www.people.com.cn", std::bind(
+    //auto ret = chan->send_request("https://youtube.com", std::bind(
        //auto ret = chan->send_request("https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3", std::bind(
-       //auto ret = chan->post_request("https://example.com", std::bind(
+       auto ret = chan->post_request("https://example.com", std::bind(
         on_call, std::placeholders::_1, std::placeholders::_2,
         std::placeholders::_3), (void*)0x123456);
     //work_thread.join();
@@ -150,6 +150,7 @@ void test_normal()
     }
 
     baselog::infox(g_logger_name, "all done");
+    baselog::uninitialize();
 }
 
 int _tmain(int argc, _TCHAR* argv[])

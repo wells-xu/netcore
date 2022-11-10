@@ -551,6 +551,11 @@ bool NetService::on_channel_close(NetChannel* channel, HandleShell* env)
 
 bool NetService::on_channel_remove(NetChannel* channel, HandleShell* env)
 {
+    if (channel == nullptr) {
+        IMMEDIATE_CRASH();
+    }
+
+    channel->feed_http_result_code(NetResultCode::CURLE_CANCEL_BY_USER);
     baselog::trace("[ns] on_channel_remove chan= {}", (void*)channel);
     this->on_channel_close(channel, env);
     channel->reset();

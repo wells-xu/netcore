@@ -78,7 +78,7 @@ bool net_service_startup()
 
     If you are initializing libcurl from a Windows DLL you should not initialize it from DllMain or a static initializer because Windows holds the loader lock during that time and it could cause a deadlock.
     */
-    if (g_ref_count.IsZero()) {
+    if (g_ref_count.Increment() == 0) {
         if (!CurlGlobalStuff::Instance().Initialize()) {
             IMMEDIATE_CRASH();
         }
@@ -93,7 +93,12 @@ bool net_service_startup()
     }
 
     baselog::info("[ns] net service inited successed");
-    return g_static_net_service->init();
+    if (!g_static_net_service->init()) {
+        g_ref_count.Decrement();
+        return false;
+    }
+
+    return true;
 }
 
 INetService* net_service_instance()
@@ -111,14 +116,18 @@ bool net_service_shutdown(INetService* netservice)
         return false;
     }
 
-    baselog::info("[ns] net service is shutdowning...");
-    if (!g_static_net_service->close()) {
-        return false;
-    }
+    if (!g_ref_count.Decrement()) {
+        baselog::info("[ns] net service is shutdowning...");
+        if (!g_static_net_service->close()) {
+            IMMEDIATE_CRASH();
+            return false;
+        }
 
-    baselog::info("[ns] net service shutdown done...");
-    if (!CurlGlobalStuff::Instance().UnInitialize()) {
-        return false;
+        baselog::info("[ns] net service shutdown done...");
+        if (!CurlGlobalStuff::Instance().UnInitialize()) {
+            IMMEDIATE_CRASH();
+            return false;
+        } 
     }
 
     return true;

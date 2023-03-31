@@ -97,7 +97,7 @@ bool NetcoreWrapper::UnInitialize()
         }
     }
 
-    if (!MEMBER_FUNCTION_NAME(net_service_instance)) {
+    if (!MEMBER_FUNCTION_NAME(net_service_shutdown)) {
         return false;
     }
     

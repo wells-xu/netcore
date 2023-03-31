@@ -24,16 +24,10 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="dll_client.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="netcore_wrapper.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="file.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="netcore_monkey_test.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\netcore\wrapper\netcore_wrapper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -44,13 +38,10 @@
     <ClCompile Include="test_netcore.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="netcore_wrapper.cpp">
+    <ClCompile Include="netcore_monkey_test.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="file.cpp">
-      <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="netcore_monkey_test.cpp">
+    <ClCompile Include="..\include\netcore\wrapper\netcore_wrapper.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -2,7 +2,7 @@
 //
 
 #include "stdafx.h"
-#include "netcore_wrapper.h"
+#include <include/netcore/wrapper/netcore_wrapper.h>
 
 #include <iostream>
 #include <chrono>

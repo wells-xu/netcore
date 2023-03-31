@@ -10,7 +10,7 @@
 #include <base/math/rand_util.h>
 #include <base/comm/no_destructor.h>
 
-#include "netcore_wrapper.h"
+#include <include/netcore/wrapper/netcore_wrapper.h>
 
 static const char* g_logger_name = "netcore_monkey_test";
 
